@@ -53,11 +53,11 @@ class RawMode
   end
 end
 
-def terminal_size(fd : Int32) : {Int32, Int32}
+def terminal_size(fd : Int32) : {Int32, Int32, Int32, Int32}
   ws = LibC::Winsize.new
   if LibC.ioctl(fd, LibC::TIOCGWINSZ, pointerof(ws)) == 0 && ws.ws_col > 0
-    {ws.ws_col.to_i, ws.ws_row.to_i}
+    {ws.ws_col.to_i, ws.ws_row.to_i, ws.ws_xpixel.to_i, ws.ws_ypixel.to_i}
   else
-    {80, 24}
+    {80, 24, 0, 0}
   end
 end
