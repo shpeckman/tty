@@ -29,7 +29,7 @@ end
 
 failures = 0
 
-pty = TTY::Pty.new("/bin/sh", ["-i"], cols: 80, rows: 24)
+pty = TTY::Pty.new("/bin/sh", ["-i"], size: TTY::Winsize.new(80, 24))
 pty.write "echo READY=$?\n"
 pty.write "kill -0 $$ && echo ALIVE\n"
 pty.write "exit\n"

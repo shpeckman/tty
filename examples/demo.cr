@@ -1,16 +1,17 @@
 # examples/demo.cr
-require "./demo_helper"
+require "../src/tty"
 
 shell = ENV["SHELL"]? || "/bin/sh"
-cols, rows = terminal_size(STDIN.fd)
+size  = TTY::Winsize.from(STDIN) || TTY::Pty::DEFAULT_SIZE
 
-pty = TTY::Pty.new(shell, ["-i"], cols: cols, rows: rows)
+pty = TTY::Pty.new(shell, ["-i"], size: size)
 
-raw = RawMode.new(STDIN.fd)
+raw = TTY::RawMode.new(STDIN)
 
 Signal::WINCH.trap do
-  c, r = terminal_size(STDIN.fd)
-  pty.resize(c, r) rescue nil
+  if current = TTY::Winsize.from(STDIN)
+    pty.resize(current) rescue nil
+  end
 end
 
 done = Channel(Nil).new

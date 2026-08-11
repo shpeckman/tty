@@ -1,5 +1,5 @@
 # examples/demo_escape.cr
-require "./demo_helper"
+require "../src/tty"
 
 class EscapeProtocol
   PREFIX = 0x01_u8
@@ -14,7 +14,7 @@ class EscapeProtocol
   @state   = State::Normal
   @logging = false
 
-  def initialize(@fd : Int32, @pty : TTY::Pty)
+  def initialize(@pty : TTY::Pty)
   end
 
   def logging? : Bool
@@ -80,19 +80,20 @@ class EscapeProtocol
 end
 
 shell = ENV["SHELL"]? || "/bin/sh"
-cols, rows = terminal_size(STDIN.fd)
+size  = TTY::Winsize.from(STDIN) || TTY::Pty::DEFAULT_SIZE
 
-pty      = TTY::Pty.new(shell, ["-i"], cols: cols, rows: rows)
-raw      = RawMode.new(STDIN.fd)
-protocol = EscapeProtocol.new(STDIN.fd, pty)
+pty      = TTY::Pty.new(shell, ["-i"], size: size)
+raw      = TTY::RawMode.new(STDIN)
+protocol = EscapeProtocol.new(pty)
 
 STDERR.print "\r\n\e[1;33m[demo] escape prefix is Ctrl-A. " \
              "Press C-a ? for commands.\e[0m\r\n"
 STDERR.flush
 
 Signal::WINCH.trap do
-  c, r = terminal_size(STDIN.fd)
-  pty.resize(c, r) rescue nil
+  if current = TTY::Winsize.from(STDIN)
+    pty.resize(current) rescue nil
+  end
 end
 
 done = Channel(Nil).new

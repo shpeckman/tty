@@ -1,58 +1,8 @@
 # src/tty/pty.cr
-
-# The `lib LibC` block must reopen the *top-level* `LibC`, not a module-nested
-# one, so the stdlib aliases like `LibC::UShort`/`LibC::ULong` resolve and this
-# binding merges with the stdlib's. It therefore lives outside `TTY`.
-@[Link("util")]
-lib LibC
-  {% unless LibC.has_constant?(:Winsize) %}
-    struct Winsize
-      ws_row : LibC::UShort
-      ws_col : LibC::UShort
-      ws_xpixel : LibC::UShort
-      ws_ypixel : LibC::UShort
-    end
-  {% end %}
-
-  fun openpty(amaster : LibC::Int*, aslave : LibC::Int*, name : LibC::Char*,
-              termp : Void*, winp : LibC::Winsize*) : LibC::Int
-
-  {% unless LibC.has_method?(:ioctl) %}
-    fun ioctl(fd : LibC::Int, request : LibC::ULong, ...) : LibC::Int
-  {% end %}
-
-  fun posix_spawn(pid : LibC::PidT*, path : LibC::Char*,
-                  file_actions : Void*, attrp : Void*,
-                  argv : LibC::Char**, envp : LibC::Char**) : LibC::Int
-  fun posix_spawnp(pid : LibC::PidT*, file : LibC::Char*,
-                   file_actions : Void*, attrp : Void*,
-                   argv : LibC::Char**, envp : LibC::Char**) : LibC::Int
-
-  fun posix_spawn_file_actions_init(fa : Void*) : LibC::Int
-  fun posix_spawn_file_actions_destroy(fa : Void*) : LibC::Int
-  fun posix_spawn_file_actions_addopen(fa : Void*, fildes : LibC::Int,
-                                       path : LibC::Char*, oflag : LibC::Int,
-                                       mode : LibC::ModeT) : LibC::Int
-  fun posix_spawn_file_actions_adddup2(fa : Void*, fildes : LibC::Int,
-                                       newfildes : LibC::Int) : LibC::Int
-  fun posix_spawn_file_actions_addclose(fa : Void*, fildes : LibC::Int) : LibC::Int
-
-  fun posix_spawnattr_init(attr : Void*) : LibC::Int
-  fun posix_spawnattr_destroy(attr : Void*) : LibC::Int
-  fun posix_spawnattr_setflags(attr : Void*, flags : LibC::Short) : LibC::Int
-end
+require "./lib_c"
+require "./terminal"
 
 class TTY::Pty
-  {% if flag?(:darwin) || flag?(:bsd) %}
-    TIOCSWINSZ = (0x80000000_u64 |
-                  ((sizeof(LibC::Winsize).to_u64 & 0x1fff) << 16) |
-                  ('t'.ord.to_u64 << 8) | 103_u64)
-  {% elsif flag?(:solaris) %}
-    TIOCSWINSZ = 0x5467_u64
-  {% else %}
-    TIOCSWINSZ = 0x5414_u64 # Linux (and the default for anything else)
-  {% end %}
-
   {% if flag?(:darwin) %}
     POSIX_SPAWN_SETSID = 0x0400_i16
   {% else %}
@@ -62,6 +12,7 @@ class TTY::Pty
   SPAWN_ATTR_SIZE         = 512
   SPAWN_FILE_ACTIONS_SIZE = 512
   O_RDWR                  =   2
+  DEFAULT_SIZE            = Winsize.new(80, 24)
 
   getter master : IO::FileDescriptor
 
@@ -72,15 +23,13 @@ class TTY::Pty
   @reaped = false
 
   def initialize(command : String, args : Array(String) = [] of String,
-                 cols : Int32 = 80, rows : Int32 = 24,
+                 size : Winsize = DEFAULT_SIZE,
                  env : Process::Env = nil, chdir : String? = nil)
     master_fd = uninitialized LibC::Int
     slave_fd = uninitialized LibC::Int
     name_buffer = Bytes.new(256, 0_u8)
 
-    ws = LibC::Winsize.new
-    ws.ws_row = rows.to_u16
-    ws.ws_col = cols.to_u16
+    ws = size.to_unsafe
 
     if LibC.openpty(pointerof(master_fd), pointerof(slave_fd),
          name_buffer.to_unsafe.as(LibC::Char*), Pointer(Void).null,
@@ -196,14 +145,13 @@ class TTY::Pty
     end
   end
 
-  def resize(cols : Int32, rows : Int32) : Nil
+  def resize(size : Winsize) : Nil
     return if @closed
-    ws = LibC::Winsize.new
-    ws.ws_row = rows.to_u16
-    ws.ws_col = cols.to_u16
-    if LibC.ioctl(@master.fd, TIOCSWINSZ, pointerof(ws)) != 0
-      raise RuntimeError.from_errno("ioctl(TIOCSWINSZ)")
-    end
+    size.apply @master
+  end
+
+  def resize(cols : Int32, rows : Int32) : Nil
+    resize Winsize.new(cols, rows)
   end
 
   def write(data : Bytes | String) : Nil

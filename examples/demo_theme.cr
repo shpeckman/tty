@@ -1,5 +1,5 @@
 # examples/demo_theme.cr
-require "./demo_helper"
+require "../src/tty"
 
 LIGHT = "\e]21;0=#5c5f77;1=#d20f39;2=#40a02b;3=#df8e1d;4=#1e66f5;5=#ea76cb;6=#179299;7=#acb0be;8=#6c6f85;9=#d20f39;10=#40a02b;11=#df8e1d;12=#1e66f5;13=#ea76cb;14=#179299;15=#bcc0cc;16=#4c4f69;17=#4e5384;18=#4c589f;19=#465cbb;20=#3a61d8;21=#1e66f5;22=#505f60;23=#516279;24=#506592;25=#4c69ad;26=#416cc7;27=#2c70e2;28=#516f56;29=#52716e;30=#517386;31=#4d759e;32=#4477b7;33=#3179d0;34=#4f7f4a;35=#508062;36=#4f8079;37=#4b808f;38=#4281a6;39=#3082be;40=#4a903d;41=#4b8e55;42=#4a8d6b;43=#458c80;44=#3c8b96;45=#298aab;46=#40a02b;47=#419d46;48=#409a5c;49=#3b9771;50=#309585;51=#179299;52=#6e4b5f;53=#72517a;54=#745696;55=#745cb2;56=#7263cf;57=#6b69ed;58=#715c58;59=#746172;60=#76668c;61=#766ba7;62=#7271c3;63=#6b76e0;64=#726d4f;65=#757169;66=#767582;67=#75799d;68=#717eb7;69=#6982d3;70=#727e45;71=#74815f;72=#758478;73=#738792;74=#6e8bab;75=#658ec5;76=#708e39;77=#729054;78=#71926d;79=#6f9586;80=#69979f;81=#5f9ab8;82=#6c9f28;83=#6da047;84=#6ca161;85=#68a27a;86=#61a392;87=#56a5ab;88=#894656;89=#8f4d71;90=#94548d;91=#965ca9;92=#9664c6;93=#946ce4;94=#8c584f;95=#925f6a;96=#956686;97=#976da2;98=#9675bf;99=#927ddd;100=#8e6a48;101=#937063;102=#96777f;103=#967e9b;104=#9585b8;105=#908cd5;106=#8f7b3f;107=#93815c;108=#958778;109=#958e94;110=#9294b0;111=#8c9bcd;112=#8f8c34;113=#929153;114=#939770;115=#929d8c;116=#8ea3a8;117=#87aac5;118=#8d9c25;119=#8fa149;120=#8fa767;121=#8dac84;122=#88b2a0;123=#7fb8bd;124=#a33d4c;125=#aa4667;126=#af5083;127=#b35aa0;128=#b465be;129=#b46fdc;130=#a65247;131=#ac5b63;132=#b16580;133=#b46f9d;134=#b579bb;135=#b383da;136=#a86541;137=#ae6e5e;138=#b2787c;139=#b4819a;140=#b48cb8;141=#b296d7;142=#aa7739;143=#af8059;144=#b28a77;145=#b49396;146=#b39eb5;147=#afa8d5;148=#aa8830;149=#af9152;150=#b29b72;151=#b2a592;152=#b0afb2;153=#abb9d2;154=#aa9922;155=#aea24b;156=#b0ac6d;157=#b0b68d;158=#acc0ae;159=#a5cbcf;160=#bb2e43;161=#c23d5e;162=#c84b7a;163=#cd5897;164=#cf65b5;165=#d073d4;166=#be483f;167=#c5555c;168=#cb6279;169=#cf6f98;170=#d17db7;171=#d18ad7;172=#c15e3a;173=#c86a59;174=#cd7778;175=#d18598;176=#d292b8;177=#d1a0da;178=#c37133;179=#ca7e56;180=#cf8b77;181=#d29998;182=#d2a7ba;183=#d0b5dd;184=#c4832b;185=#cb9052;186=#cf9e75;187=#d2ac98;188=#d1bbbb;189=#cec9df;190=#c59420;191=#cba24d;192=#cfb173;193=#d1bf97;194=#cfcebc;195=#cadee2;196=#d20f39;197=#da2e55;198=#e04371;199=#e5558e;200=#e966ac;201=#ea76cb;202=#d63a36;203=#de4d54;204=#e45f73;205=#e97092;206=#ec80b2;207=#ed91d3;208=#d95432;209=#e16554;210=#e87675;211=#ec8796;212=#ef98b9;213=#efaadc;214=#db692d;215=#e47a53;216=#ea8c76;217=#ef9e9a;218=#f1b0bf;219=#f0c2e4;220=#dd7c27;221=#e68e51;222=#eda177;223=#f1b39e;224=#f2c6c5;225=#f0daed;226=#df8e1d;227=#e8a14f;228=#eeb578;229=#f2c8a1;230=#f2ddcb;231=#eff1f5;232=#52556e;233=#585b73;234=#5e6179;235=#64677e;236=#6a6d83;237=#717389;238=#77798e;239=#7d7f94;240=#848699;241=#8a8c9f;242=#9092a4;243=#9799aa;244=#9d9faf;245=#a4a6b5;246=#abacbb;247=#b1b3c0;248=#b8bac6;249=#bfc1cc;250=#c6c7d2;251=#ccced7;252=#d3d5dd;253=#dadce3;254=#e1e3e9;255=#e8eaef;foreground=#4c4f69;background=#eff1f5;selection_foreground=#eff1f5;selection_background=#dc8a78;cursor=#dc8a78;cursor_text=#eff1f5\e\\"
 
@@ -48,10 +48,10 @@ class ThemeFilter
 end
 
 shell = ENV["SHELL"]? || "/bin/sh"
-cols, rows = terminal_size(STDIN.fd)
+size  = TTY::Winsize.from(STDIN) || TTY::Pty::DEFAULT_SIZE
 
-pty    = TTY::Pty.new(shell, ["-i"], cols: cols, rows: rows)
-raw    = RawMode.new(STDIN.fd)
+pty    = TTY::Pty.new(shell, ["-i"], size: size)
+raw    = TTY::RawMode.new(STDIN)
 filter = ThemeFilter.new
 
 STDERR.print "\r\n\e[1;33m[demo] write \e[=997;1n for dark, " \
@@ -59,8 +59,9 @@ STDERR.print "\r\n\e[1;33m[demo] write \e[=997;1n for dark, " \
 STDERR.flush
 
 Signal::WINCH.trap do
-  c, r = terminal_size(STDIN.fd)
-  pty.resize(c, r) rescue nil
+  if current = TTY::Winsize.from(STDIN)
+    pty.resize(current) rescue nil
+  end
 end
 
 done = Channel(Nil).new

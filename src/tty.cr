@@ -1,6 +1,7 @@
 # src/tty.cr
+require "./tty/lib_c"
+require "./tty/terminal"
 require "./tty/pty"
-require "./tty/mux"
 
 module TTY
   VERSION = {{ `shards version "#{__DIR__}"`.chomp.stringify }}
