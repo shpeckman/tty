@@ -5,20 +5,13 @@ require "./tokenizer"
 
 @[Link("c")]
 lib LibC
-  fun posix_spawn(pid : LibC::PidT*, path : LibC::Char*,
-                  file_actions : Void*, attrp : Void*,
-                  argv : LibC::Char**, envp : LibC::Char**) : LibC::Int
-  fun posix_spawnp(pid : LibC::PidT*, file : LibC::Char*,
-                   file_actions : Void*, attrp : Void*,
-                   argv : LibC::Char**, envp : LibC::Char**) : LibC::Int
+  fun posix_spawn(pid : LibC::PidT*, path : LibC::Char*, file_actions : Void*, attrp : Void*, argv : LibC::Char**, envp : LibC::Char**) : LibC::Int
+  fun posix_spawnp(pid : LibC::PidT*, file : LibC::Char*, file_actions : Void*, attrp : Void*, argv : LibC::Char**, envp : LibC::Char**) : LibC::Int
 
   fun posix_spawn_file_actions_init(fa : Void*) : LibC::Int
   fun posix_spawn_file_actions_destroy(fa : Void*) : LibC::Int
-  fun posix_spawn_file_actions_addopen(fa : Void*, fildes : LibC::Int,
-                                       path : LibC::Char*, oflag : LibC::Int,
-                                       mode : LibC::ModeT) : LibC::Int
-  fun posix_spawn_file_actions_adddup2(fa : Void*, fildes : LibC::Int,
-                                       newfildes : LibC::Int) : LibC::Int
+  fun posix_spawn_file_actions_addopen(fa : Void*, fildes : LibC::Int, path : LibC::Char*, oflag : LibC::Int, mode : LibC::ModeT) : LibC::Int
+  fun posix_spawn_file_actions_adddup2(fa : Void*, fildes : LibC::Int, newfildes : LibC::Int) : LibC::Int
   fun posix_spawn_file_actions_addclose(fa : Void*, fildes : LibC::Int) : LibC::Int
 
   fun posix_spawnattr_init(attr : Void*) : LibC::Int
@@ -28,8 +21,7 @@ end
 
 @[Link("util")]
 lib LibC
-  fun openpty(amaster : LibC::Int*, aslave : LibC::Int*, name : LibC::Char*,
-              termp : Void*, winp : LibC::Winsize*) : LibC::Int
+  fun openpty(amaster : LibC::Int*, aslave : LibC::Int*, name : LibC::Char*, termp : Void*, winp : LibC::Winsize*) : LibC::Int
 end
 
 struct TTY::PTY
