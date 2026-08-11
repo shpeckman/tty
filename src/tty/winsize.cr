@@ -1,5 +1,19 @@
-# src/tty/terminal.cr
-require "./lib_c"
+# src/tty/winsize.cr
+@[Link("c")]
+lib LibC
+  {% unless LibC.has_constant?(:Winsize) %}
+    struct Winsize
+      ws_row : LibC::UShort
+      ws_col : LibC::UShort
+      ws_xpixel : LibC::UShort
+      ws_ypixel : LibC::UShort
+    end
+  {% end %}
+
+  {% unless LibC.has_method?(:ioctl) %}
+    fun ioctl(fd : LibC::Int, request : LibC::ULong, ...) : LibC::Int
+  {% end %}
+end
 
 struct TTY::Winsize
   {% if flag?(:darwin) || flag?(:bsd) %}
@@ -46,39 +60,5 @@ struct TTY::Winsize
     ws.ws_xpixel = @xpixel.to_u16
     ws.ws_ypixel = @ypixel.to_u16
     ws
-  end
-end
-
-class TTY::RawMode
-  getter io : IO::FileDescriptor
-  getter? restored = false
-
-  @saved : LibC::Termios
-
-  def self.open(io : IO::FileDescriptor, &)
-    mode = new(io)
-    begin
-      yield mode
-    ensure
-      mode.restore
-    end
-  end
-
-  def initialize(@io : IO::FileDescriptor)
-    @saved = uninitialized LibC::Termios
-    if LibC.tcgetattr(@io.fd, pointerof(@saved)) != 0
-      raise RuntimeError.from_errno("tcgetattr")
-    end
-    raw = @saved
-    LibC.cfmakeraw(pointerof(raw))
-    if LibC.tcsetattr(@io.fd, LibC::TCSANOW, pointerof(raw)) != 0
-      raise RuntimeError.from_errno("tcsetattr")
-    end
-  end
-
-  def restore : Nil
-    return if @restored
-    @restored = true
-    LibC.tcsetattr(@io.fd, LibC::TCSANOW, pointerof(@saved))
   end
 end
