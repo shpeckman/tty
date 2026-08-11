@@ -6,10 +6,11 @@ struct TTY::Token
     OSC; DCS; APC; SOS; PM
   end
 
-  getter kind  : Kind
-  getter bytes : Bytes
+  getter kind       : Kind
+  getter bytes      : Bytes
+  getter? malformed : Bool
 
-  def initialize(@kind : Kind, @bytes : Bytes)
+  def initialize(@kind : Kind, @bytes : Bytes, @malformed : Bool = false)
   end
 
   def size : Int32
@@ -42,7 +43,7 @@ struct TTY::Token
   end
 
   def clone : Token
-    Token.new(@kind, @bytes.dup)
+    Token.new(@kind, @bytes.dup, @malformed)
   end
 
   def each_byte(& : UInt8 ->) : Nil
@@ -61,7 +62,18 @@ struct TTY::Token
     io.write_string(@bytes)
   end
 
+  def inspect(io : IO) : Nil
+    io << "TTY::Token(" << @kind
+    io << ", malformed" if @malformed
+    io << ", "
+    @bytes.each_with_index do |byte, index|
+      io << ' ' if index > 0
+      byte.to_s(io, base: 16, precision: 2)
+    end
+    io << ')'
+  end
+
   def ==(other : Token) : Bool
-    @kind == other.kind && @bytes == other.bytes
+    @kind == other.kind && @malformed == other.malformed? && @bytes == other.bytes
   end
 end
