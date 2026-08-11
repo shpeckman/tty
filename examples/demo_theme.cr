@@ -50,7 +50,7 @@ end
 shell = ENV["SHELL"]? || "/bin/sh"
 size  = TTY::Winsize.from(STDIN) || TTY::Pty::DEFAULT_SIZE
 
-pty    = TTY::Pty.new(shell, ["-i"], size: size)
+pty    = TTY::Pty.new(shell, {"-i"}, size: size)
 raw    = TTY::RawMode.new(STDIN)
 filter = ThemeFilter.new
 
@@ -69,7 +69,7 @@ done = Channel(Nil).new
 spawn do
   buffer = Bytes.new(4096)
   loop do
-    n = pty.master.read(buffer)
+    n = pty.read(buffer)
     break if n.zero?
     filter.feed(buffer[0, n], STDOUT) do |theme|
       STDOUT.write(theme.dark? ? DARK.to_slice : LIGHT.to_slice)

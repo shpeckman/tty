@@ -11,7 +11,7 @@ def read_until_idle(pty : TTY::Pty, timeout : Time::Span = 2.seconds) : String
     ch = Channel(Int32?).new
     spawn do
       begin
-        ch.send pty.master.read(buffer)
+        ch.send pty.read(buffer)
       rescue
         ch.send nil
       end
@@ -40,7 +40,7 @@ end
 
 probe = File.join(__DIR__, "child_probe.sh")
 
-pty    = TTY::Pty.new("/bin/sh", [probe], size: TTY::Winsize.new(80, 24))
+pty    = TTY::Pty.new("/bin/sh", {probe}, size: TTY::Winsize.new(80, 24))
 output = read_until_idle(pty)
 code   = pty.reap
 

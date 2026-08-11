@@ -2,7 +2,7 @@
 require "./lib_c"
 require "./terminal"
 
-class TTY::Pty
+class TTY::Pty < IO
   {% if flag?(:darwin) %}
     POSIX_SPAWN_SETSID = 0x0400_i16
   {% else %}
@@ -14,15 +14,26 @@ class TTY::Pty
   O_RDWR                  =   2
   DEFAULT_SIZE            = Winsize.new(80, 24)
 
-  getter master : IO::FileDescriptor
-
+  getter master  : IO::FileDescriptor
   getter process : Process
 
   getter? closed = false
   @exit_code : Int32? = nil
   @reaped = false
 
-  def initialize(command : String, args : Array(String) = [] of String,
+  def self.open(command : String, args : Enumerable(String) = [] of String,
+                size : Winsize = DEFAULT_SIZE,
+                env : Process::Env = nil, chdir : String? = nil, &)
+    pty = new(command, args, size: size, env: env, chdir: chdir)
+    begin
+      yield pty
+    ensure
+      pty.kill
+      pty.reap
+    end
+  end
+
+  def initialize(command : String, args : Enumerable(String) = [] of String,
                  size : Winsize = DEFAULT_SIZE,
                  env : Process::Env = nil, chdir : String? = nil)
     master_fd = uninitialized LibC::Int
@@ -58,7 +69,7 @@ class TTY::Pty
     String.new(name_buffer[0, stop])
   end
 
-  private def spawn_child(command, args, master_fd, slave, slave_path,
+  private def spawn_child(command, args : Enumerable(String), master_fd, slave, slave_path,
                           env, chdir) : Process
     if pid = spawn_via_posix_spawn(command, args, master_fd, slave_path, env, chdir)
       return Process.new(Crystal::System::Process.new(pid))
@@ -66,7 +77,7 @@ class TTY::Pty
     spawn_via_openpty command, args, slave, env, chdir
   end
 
-  private def spawn_via_posix_spawn(command, args, master_fd, slave_path,
+  private def spawn_via_posix_spawn(command, args : Enumerable(String), master_fd, slave_path,
                                     env, chdir) : LibC::PidT?
     resolved = Process.find_executable(command)
     return nil unless resolved
@@ -112,7 +123,7 @@ class TTY::Pty
     end
   end
 
-  private def build_argv(command : String, args : Array(String)) : LibC::Char**
+  private def build_argv(command : String, args : Enumerable(String)) : LibC::Char**
     list = [command.to_unsafe]
     args.each { |a| list << a.to_unsafe }
     list << Pointer(LibC::Char).null
@@ -136,12 +147,14 @@ class TTY::Pty
     list.to_unsafe
   end
 
-  private def spawn_via_openpty(command, args, slave, env, chdir) : Process
+  private def spawn_via_openpty(command, args : Enumerable(String), slave, env, chdir) : Process
     base = {input: slave, output: slave, error: slave, env: env, chdir: chdir}
     if Process.find_executable("setsid")
-      Process.new("setsid", ["-c", command] + args, **base)
+      setsid_args = ["-c", command]
+      args.each { |a| setsid_args << a }
+      Process.new("setsid", setsid_args, **base)
     else
-      Process.new(command, args, **base)
+      Process.new(command, args.to_a, **base)
     end
   end
 
@@ -154,10 +167,24 @@ class TTY::Pty
     resize Winsize.new(cols, rows)
   end
 
-  def write(data : Bytes | String) : Nil
+  def read(slice : Bytes) : Int32
+    @master.read(slice)
+  end
+
+  def write(slice : Bytes) : Nil
     return if @closed
-    @master.write data.to_slice
+    @master.write(slice)
     @master.flush
+  end
+
+  def write(data : String) : Nil
+    write(data.to_slice)
+  end
+
+  def close : Nil
+    return if @closed
+    @closed = true
+    @master.close rescue nil
   end
 
   def reap : Int32?
@@ -168,11 +195,10 @@ class TTY::Pty
 
   def kill : Nil
     return if @closed
-    @closed = true
     begin
       @process.signal Signal::HUP unless @process.terminated?
     rescue
     end
-    @master.close rescue nil
+    close
   end
 end

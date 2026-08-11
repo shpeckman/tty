@@ -11,7 +11,7 @@ def drain(pty : TTY::Pty, timeout : Time::Span = 2.seconds) : String
     ch = Channel(Int32?).new
     spawn do
       begin
-        ch.send pty.master.read(buffer)
+        ch.send pty.read(buffer)
       rescue
         ch.send nil
       end
@@ -29,7 +29,7 @@ end
 
 failures = 0
 
-pty = TTY::Pty.new("/bin/sh", ["-i"], size: TTY::Winsize.new(80, 24))
+pty = TTY::Pty.new("/bin/sh", {"-i"}, size: TTY::Winsize.new(80, 24))
 pty.write "echo READY=$?\n"
 pty.write "kill -0 $$ && echo ALIVE\n"
 pty.write "exit\n"

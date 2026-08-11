@@ -82,7 +82,7 @@ end
 shell = ENV["SHELL"]? || "/bin/sh"
 size  = TTY::Winsize.from(STDIN) || TTY::Pty::DEFAULT_SIZE
 
-pty      = TTY::Pty.new(shell, ["-i"], size: size)
+pty      = TTY::Pty.new(shell, {"-i"}, size: size)
 raw      = TTY::RawMode.new(STDIN)
 protocol = EscapeProtocol.new(pty)
 
@@ -101,7 +101,7 @@ done = Channel(Nil).new
 spawn do
   buffer = Bytes.new(4096)
   loop do
-    n = pty.master.read(buffer)
+    n = pty.read(buffer)
     break if n.zero?
     STDOUT.write buffer[0, n]
     STDOUT.flush
