@@ -1,4 +1,5 @@
 # src/tty.cr
+require "./ext/mvu"
 require "./tty/winsize"
 require "./tty/raw_mode"
 require "./tty/token"

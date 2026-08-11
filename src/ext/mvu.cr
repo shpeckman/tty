@@ -1,4 +1,4 @@
-# src/mvu.cr
+# src/ext/mvu.cr
 require "set"
 
 module MVU
