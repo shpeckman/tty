@@ -5,6 +5,7 @@ require "./tty/modes"
 require "./tty/token"
 require "./tty/parser"
 require "./tty/messages"
+require "./tty/interceptor"
 require "./tty/pty"
 require "./tty/codec/gfx"
 

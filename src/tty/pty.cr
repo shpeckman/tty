@@ -2,6 +2,7 @@
 require "./winsize"
 require "./messages"
 require "./parser"
+require "./interceptor"
 
 @[Link("c")]
 lib LibC
@@ -38,14 +39,22 @@ struct TTY::PTY
   O_RDWR                  =   2
   DEFAULT_SIZE            = Winsize.new(80, 24)
 
-  getter master    : IO::FileDescriptor
-  getter process   : Process
-  getter size      : Winsize
-  getter closed    : Bool
-  getter io_closed : Bool
-  getter exit_code : Int32?
+  getter master       : IO::FileDescriptor
+  getter process      : Process
+  getter size         : Winsize
+  getter closed       : Bool
+  getter io_closed    : Bool
+  getter exit_code    : Int32?
+  getter interceptors : Array(Interceptor)
 
-  def self.spawn(command : String, args : Enumerable(String) = [] of String, size : Winsize = DEFAULT_SIZE, env : Process::Env = nil, chdir : String? = nil) : PTY
+  def self.spawn(
+    command : String,
+    args : Enumerable(String) = [] of String,
+    size : Winsize = DEFAULT_SIZE,
+    env : Process::Env = nil,
+    chdir : String? = nil,
+    interceptors : Array(Interceptor) = [] of Interceptor,
+  ) : PTY
     master_fd = uninitialized LibC::Int
     slave_fd = uninitialized LibC::Int
     name_buffer = Bytes.new(256, 0_u8)
@@ -69,7 +78,7 @@ struct TTY::PTY
 
     slave.close
 
-    new(master, process, size)
+    new(master, process, size, interceptors: interceptors)
   end
 
   private def self.slave_path(name_buffer : Bytes) : String
@@ -162,7 +171,15 @@ struct TTY::PTY
     end
   end
 
-  def initialize(@master : IO::FileDescriptor, @process : Process, @size : Winsize, @closed : Bool = false, @io_closed : Bool = false, @exit_code : Int32? = nil)
+  def initialize(
+    @master : IO::FileDescriptor,
+    @process : Process,
+    @size : Winsize,
+    @closed : Bool = false,
+    @io_closed : Bool = false,
+    @exit_code : Int32? = nil,
+    @interceptors : Array(Interceptor) = [] of Interceptor,
+  )
   end
 
   def update(msg : MVU::Msg) : {self, MVU::Cmd}
@@ -170,6 +187,7 @@ struct TTY::PTY
     when Write
       cmd = MVU::Cmd.sync do
         unless @closed || @io_closed
+          @interceptors.each &.on_pty_write(msg.data)
           @master.write(msg.data)
           @master.flush
         end
@@ -181,7 +199,7 @@ struct TTY::PTY
         msg.size.apply(@master) unless @closed
         nil.as(MVU::Msg?)
       end
-      {PTY.new(@master, @process, msg.size, @closed, @io_closed, @exit_code), cmd}
+      {PTY.new(@master, @process, msg.size, @closed, @io_closed, @exit_code, @interceptors), cmd}
     when Close
       cmd = MVU::Cmd.sync do
         unless @closed
@@ -193,11 +211,11 @@ struct TTY::PTY
         end
         nil.as(MVU::Msg?)
       end
-      {PTY.new(@master, @process, @size, true, true, @exit_code), cmd}
+      {PTY.new(@master, @process, @size, true, true, @exit_code, @interceptors), cmd}
     when EOF
-      {PTY.new(@master, @process, @size, @closed, true, @exit_code), MVU::Cmd.none}
+      {PTY.new(@master, @process, @size, @closed, true, @exit_code, @interceptors), MVU::Cmd.none}
     when ProcessExited
-      {PTY.new(@master, @process, @size, @closed, @io_closed, msg.code), MVU::Cmd.none}
+      {PTY.new(@master, @process, @size, @closed, @io_closed, msg.code, @interceptors), MVU::Cmd.none}
     else
       {self, MVU::Cmd.none}
     end
@@ -222,12 +240,32 @@ struct TTY::PTY
       MVU::Sub.new(id) do |dispatch, cancel|
         buffer = Bytes.new(4096)
         parser = TTY::VT::Parser.new
+
+        @interceptors.each &.bind_dispatch(dispatch)
+
         until cancel.closed?
           begin
             bytes_read = @master.read(buffer)
             if bytes_read > 0
-              tokens = parser.parse(buffer[0, bytes_read])
-              dispatch.call(TokensDecoded.new(tokens)) unless tokens.empty?
+              slice = buffer[0, bytes_read]
+              @interceptors.each &.on_pty_read(slice)
+
+              tokens = parser.parse(slice)
+
+              if @interceptors.empty?
+                dispatch.call(TokensDecoded.new(tokens)) unless tokens.empty?
+              else
+                passthrough = [] of Token
+                tokens.each do |token|
+                  current : Token? = token
+                  @interceptors.each do |interceptor|
+                    break unless current
+                    current = interceptor.intercept(current)
+                  end
+                  passthrough << current if current
+                end
+                dispatch.call(TokensDecoded.new(passthrough)) unless passthrough.empty?
+              end
             else
               dispatch.call(EOF.new)
             end
