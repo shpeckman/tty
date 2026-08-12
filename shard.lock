@@ -1,5 +1,9 @@
 version: 2.0
 shards:
+  mvu:
+    git: https://github.com/shpeckman/mvu.git
+    version: 0.2.0+git.commit.9b2e84e1a02dec18df4ba7a04aae72996e921a93
+
   vt:
     git: https://github.com/shpeckman/vt.git
     version: 0.2.0+git.commit.2be711899dcaec16a480aa37cb118678e0ea56f7

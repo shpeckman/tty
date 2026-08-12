@@ -8,6 +8,8 @@ authors:
 crystal: '>= 1.21.0'
 
 dependencies:
+  mvu:
+    github: shpeckman/mvu
   vt:
     github: shpeckman/vt
 
