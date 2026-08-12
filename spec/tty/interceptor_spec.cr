@@ -29,9 +29,16 @@ class TestInterceptor < TTY::Interceptor
     @intercepted_tokens << token
     str = String.new(token.bytes)
 
-    # Since text is parsed codepoint-by-codepoint, we look for a single trigger char
+    # Test condition for the basic custom trigger
     if str == "Z"
       dispatch(CustomMsg.new("intercepted_custom_event"))
+    end
+
+    # Test condition for a custom CSI sequence (e.g. \e[99;<payload>p)
+    if token.kind.csi? && str.starts_with?("\e[99;") && str.ends_with?("p")
+      payload = str[5..-2]
+      dispatch(CustomMsg.new("csi_payload:#{payload}"))
+      return nil # Swallow the token
     end
 
     return nil if @swallow
@@ -105,6 +112,53 @@ describe TTY::Interceptor do
     tokens_received.should be_true
     interceptor.read_data.to_s.should contain("TRIGGER_Z")
     interceptor.intercepted_tokens.size.should be > 0
+
+    cancel.close
+    _, close_cmd = pty.update(TTY::Close.new)
+    close_cmd.tasks.each &.run.call
+  end
+
+  it "intercepts and swallows custom CSI sequences" do
+    interceptor = TestInterceptor.new
+
+    # Use sh and printf to output the exact byte stream without PTY ECHOCTL mangling the ESC character
+    pty = TTY::PTY.spawn("sh", ["-c", "printf 'hello\\033[99;12345pworld'"], interceptors: [interceptor] of TTY::Interceptor)
+
+    sub      = pty.subscription(:pty_read)
+    cancel   = Channel(Nil).new
+    messages = Channel(MVU::Msg).new(100)
+
+    spawn do
+      sub.task.call(->(m : MVU::Msg) { messages.send(m) }, cancel)
+    end
+
+    custom_received = false
+    received_text   = ""
+
+    20.times do
+      select
+      when msg = messages.receive
+        if msg.is_a?(TestInterceptor::CustomMsg)
+          msg.payload.should eq("csi_payload:12345")
+          custom_received = true
+        elsif msg.is_a?(TTY::TokensDecoded)
+          msg.tokens.each do |t|
+            if t.text?
+              received_text += String.new(t.bytes)
+            elsif t.kind.csi?
+              String.new(t.bytes).should_not contain("\e[99;")
+            end
+          end
+        end
+        break if custom_received && received_text.includes?("world")
+      when timeout(1.second)
+        break
+      end
+    end
+
+    custom_received.should be_true
+    # The CSI sequence should be removed, leaving only the text.
+    received_text.should contain("helloworld")
 
     cancel.close
     _, close_cmd = pty.update(TTY::Close.new)
