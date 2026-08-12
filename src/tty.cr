@@ -1,8 +1,7 @@
 # src/tty.cr
 require "./ext/mvu"
 require "./tty/winsize"
-require "./tty/raw_mode"
-require "./tty/cbreak_mode"
+require "./tty/modes"
 require "./tty/token"
 require "./tty/parser"
 require "./tty/messages"
