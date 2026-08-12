@@ -11,17 +11,45 @@ private def apc(sequence : String) : TTY::Token
   apc(sequence.to_slice)
 end
 
-private def c1_apc(body : String) : TTY::Token
+private def c1_apc(body : String) : String
   io = IO::Memory.new
   io.write_byte(0x9F_u8)
   io << body
   io.write_byte(0x1B_u8)
   io.write_byte(0x5C_u8)
-  apc(io.to_slice)
+  String.new(io.to_slice)
+end
+
+private def extract_payload(token : TTY::Token) : Bytes
+  bytes = token.bytes
+  offset = if bytes.size >= 2 && bytes.unsafe_fetch(0) == 0x1b_u8 && bytes.unsafe_fetch(1) == 0x5f_u8
+             2
+           elsif bytes.size >= 1 && bytes.unsafe_fetch(0) == 0x9f_u8
+             1
+           else
+             return Bytes.empty
+           end
+
+  end_idx = bytes.size
+  if bytes.size >= 2 && bytes.unsafe_fetch(bytes.size - 2) == 0x1b_u8 && bytes.unsafe_fetch(bytes.size - 1) == 0x5c_u8
+    end_idx -= 2
+  elsif bytes.size >= 1 && bytes.unsafe_fetch(bytes.size - 1) == 0x9c_u8
+    end_idx -= 1
+  end
+
+  bytes[offset, end_idx - offset]
 end
 
 private def command(sequence : String)
-  Gfx.command(apc(sequence))
+  Gfx.command(extract_payload(apc(sequence)))
+end
+
+private def response(sequence : String)
+  Gfx.response(extract_payload(apc(sequence)))
+end
+
+private def feed(assembler : Gfx::Assembler, sequence : String)
+  assembler.feed(extract_payload(apc(sequence)))
 end
 
 private def encoded(command : Gfx::Command, chunk_size : Int32 = Gfx::MAX_CHUNK) : Array(String)
@@ -38,27 +66,17 @@ describe TTY::Codec::Gfx do
       payload = "A" * Gfx::MAX_CHUNK
       token   = apc("\e_Gm=1;#{payload}\e\\")
       token.malformed?.should be_false
-      Gfx.command(token).should be_a(Gfx::Chunk)
+      Gfx.command(extract_payload(token)).should be_a(Gfx::Chunk)
     end
   end
 
   describe "rejection" do
-    it "ignores non-apc tokens" do
-      Gfx.command(TTY::VT::Parser.new.parse("\e[1m")[0]).should be_nil
-    end
-
-    it "ignores apc sequences that are not graphics commands" do
+    it "ignores sequences that do not start with G" do
       command("\e_payload\e\\").should be_nil
     end
 
-    it "ignores truncated tokens" do
-      token = TTY::VT::Parser.new(capacity: 8).parse("\e_Ga=T,f=100;AQID\e\\")[0]
-      token.malformed?.should be_true
-      Gfx.command(token).should be_nil
-    end
-
     it "accepts the c1 introducer" do
-      transmit = Gfx.command(c1_apc("Ga=t,i=5;AQID")).as(Gfx::Transmit)
+      transmit = command(c1_apc("Ga=t,i=5;AQID")).as(Gfx::Transmit)
       transmit.id.image_id.should eq(5)
       transmit.source.data.should eq(Bytes[1, 2, 3])
     end
@@ -309,34 +327,34 @@ describe TTY::Codec::Gfx do
 
   describe "responses" do
     it "decodes an ok reply" do
-      response = Gfx.response(apc("\e_Gi=31;OK\e\\")).not_nil!
-      response.ok?.should be_true
-      response.id.image_id.should eq(31)
+      reply = response("\e_Gi=31;OK\e\\").not_nil!
+      reply.ok?.should be_true
+      reply.id.image_id.should eq(31)
     end
 
     it "decodes an image number reply" do
-      response = Gfx.response(apc("\e_Gi=99,I=13;OK\e\\")).not_nil!
-      response.id.image_id.should eq(99)
-      response.id.image_number.should eq(13)
+      reply = response("\e_Gi=99,I=13;OK\e\\").not_nil!
+      reply.id.image_id.should eq(99)
+      reply.id.image_number.should eq(13)
     end
 
     it "decodes an error reply" do
-      response = Gfx.response(apc("\e_Gi=10;ENOENT:not found\e\\")).not_nil!
-      response.ok?.should be_false
-      response.code.should eq(Gfx::ErrorCode::ENOENT)
-      response.message.should eq("not found")
+      reply = response("\e_Gi=10;ENOENT:not found\e\\").not_nil!
+      reply.ok?.should be_false
+      reply.code.should eq(Gfx::ErrorCode::ENOENT)
+      reply.message.should eq("not found")
     end
 
     it "decodes a bare error code" do
-      Gfx.response(apc("\e_Gi=10;EINVAL\e\\")).not_nil!.code.should eq(Gfx::ErrorCode::EINVAL)
+      response("\e_Gi=10;EINVAL\e\\").not_nil!.code.should eq(Gfx::ErrorCode::EINVAL)
     end
 
     it "does not read a command as a reply" do
-      Gfx.response(apc("\e_Ga=T,f=100;AQID\e\\")).should be_nil
+      response("\e_Ga=T,f=100;AQID\e\\").should be_nil
     end
 
     it "does not read an unknown code as a reply" do
-      Gfx.response(apc("\e_Gi=10;EWHAT:nope\e\\")).should be_nil
+      response("\e_Gi=10;EWHAT:nope\e\\").should be_nil
     end
 
     it "encodes an ok reply" do
@@ -344,8 +362,8 @@ describe TTY::Codec::Gfx do
     end
 
     it "encodes an error reply" do
-      response = Gfx::Response.new(Gfx::Id.image(7, 3), Gfx::ErrorCode::ENOENT, "missing")
-      String.new(response.to_slice).should eq("\e_Gi=7,p=3;ENOENT:missing\e\\")
+      reply = Gfx::Response.new(Gfx::Id.image(7, 3), Gfx::ErrorCode::ENOENT, "missing")
+      String.new(reply.to_slice).should eq("\e_Gi=7,p=3;ENOENT:missing\e\\")
     end
 
     it "suppresses replies per the quiet level" do
@@ -425,7 +443,7 @@ describe TTY::Codec::Gfx do
         Gfx::Placement.new(columns: 4, rows: 2, z: -3, virtual: true)
       )
 
-      decoded = Gfx.command(apc(Gfx.encode(transmit)[0])).as(Gfx::Transmit)
+      decoded = Gfx.command(extract_payload(apc(Gfx.encode(transmit)[0]))).as(Gfx::Transmit)
       decoded.id.image_id.should eq(31)
       decoded.id.placement_id.should eq(4)
       decoded.source.data.should eq(Bytes[9, 8, 7, 6])
@@ -442,12 +460,12 @@ describe TTY::Codec::Gfx do
 
       chunks = Gfx.encode(transmit, Gfx::MAX_CHUNK)
       chunks.size.should eq(1)
-      Gfx.command(apc(chunks[0])).as(Gfx::Transmit).source.data.should eq(data)
+      Gfx.command(extract_payload(apc(chunks[0]))).as(Gfx::Transmit).source.data.should eq(data)
     end
 
     it "survives a delete" do
       delete  = Gfx::Delete.new(Gfx::Id.image(3), Gfx::DeleteTarget::CellZ, true, 5, 6, -7)
-      decoded = Gfx.command(apc(Gfx.encode(delete)[0])).as(Gfx::Delete)
+      decoded = Gfx.command(extract_payload(apc(Gfx.encode(delete)[0]))).as(Gfx::Delete)
       decoded.target.should eq(Gfx::DeleteTarget::CellZ)
       decoded.free_data?.should be_true
       decoded.x.should eq(5)
@@ -457,7 +475,7 @@ describe TTY::Codec::Gfx do
 
     it "survives an animation control" do
       animate = Gfx::Animate.new(Gfx::Id.image(2), Gfx::AnimState::LoadWait, 3, -1, 4, 5)
-      decoded = Gfx.command(apc(Gfx.encode(animate)[0])).as(Gfx::Animate)
+      decoded = Gfx.command(extract_payload(apc(Gfx.encode(animate)[0]))).as(Gfx::Animate)
       decoded.state.should eq(Gfx::AnimState::LoadWait)
       decoded.frame.should eq(3)
       decoded.gap.should eq(-1)
@@ -475,7 +493,7 @@ describe TTY::Codec::Gfx do
         Gfx::Blend::Replace
       )
 
-      decoded = Gfx.command(apc(Gfx.encode(compose)[0])).as(Gfx::Compose)
+      decoded = Gfx.command(extract_payload(apc(Gfx.encode(compose)[0]))).as(Gfx::Compose)
       decoded.source_frame.should eq(7)
       decoded.target_frame.should eq(9)
       decoded.source.x.should eq(4)
@@ -488,10 +506,10 @@ describe TTY::Codec::Gfx do
     it "holds until the final chunk arrives" do
       assembler = Gfx::Assembler.new
 
-      assembler.feed(apc("\e_Ga=T,f=100,i=1,m=1;AQID\e\\")).should be_nil
+      feed(assembler, "\e_Ga=T,f=100,i=1,m=1;AQID\e\\").should be_nil
       assembler.pending?.should be_true
 
-      transmit = assembler.feed(apc("\e_Gm=0;BAUG\e\\")).as(Gfx::Transmit)
+      transmit = feed(assembler, "\e_Gm=0;BAUG\e\\").as(Gfx::Transmit)
       transmit.id.image_id.should eq(1)
       transmit.source.data.should eq(Bytes[1, 2, 3, 4, 5, 6])
       transmit.source.more?.should be_false
@@ -500,40 +518,40 @@ describe TTY::Codec::Gfx do
 
     it "returns an unchunked command immediately" do
       assembler = Gfx::Assembler.new
-      assembler.feed(apc("\e_Ga=T,f=100,i=1;AQID\e\\")).should be_a(Gfx::Transmit)
+      feed(assembler, "\e_Ga=T,f=100,i=1;AQID\e\\").should be_a(Gfx::Transmit)
       assembler.pending?.should be_false
     end
 
     it "ignores a continuation with nothing pending" do
-      Gfx::Assembler.new.feed(apc("\e_Gm=0;AQID\e\\")).should be_nil
+      feed(Gfx::Assembler.new, "\e_Gm=0;AQID\e\\").should be_nil
     end
 
     it "aborts a partial upload on delete" do
       assembler = Gfx::Assembler.new
-      assembler.feed(apc("\e_Ga=T,f=100,i=1,m=1;AQID\e\\")).should be_nil
-      assembler.feed(apc("\e_Ga=d\e\\")).should be_a(Gfx::Delete)
+      feed(assembler, "\e_Ga=T,f=100,i=1,m=1;AQID\e\\").should be_nil
+      feed(assembler, "\e_Ga=d\e\\").should be_a(Gfx::Delete)
       assembler.pending?.should be_false
-      assembler.feed(apc("\e_Gm=0;BAUG\e\\")).should be_nil
+      feed(assembler, "\e_Gm=0;BAUG\e\\").should be_nil
     end
 
     it "aborts a partial upload on an unrelated command" do
       assembler = Gfx::Assembler.new
-      assembler.feed(apc("\e_Ga=T,f=100,i=1,m=1;AQID\e\\")).should be_nil
-      assembler.feed(apc("\e_Ga=p,i=2\e\\")).should be_a(Gfx::Put)
+      feed(assembler, "\e_Ga=T,f=100,i=1,m=1;AQID\e\\").should be_nil
+      feed(assembler, "\e_Ga=p,i=2\e\\").should be_a(Gfx::Put)
       assembler.pending?.should be_false
     end
 
     it "reports a quota overrun" do
       assembler = Gfx::Assembler.new(max_payload: 2)
-      failure   = assembler.feed(apc("\e_Ga=T,f=100,i=1,m=1;AQID\e\\")).as(Gfx::Failure)
+      failure   = feed(assembler, "\e_Ga=T,f=100,i=1,m=1;AQID\e\\").as(Gfx::Failure)
       failure.code.should eq(Gfx::ErrorCode::ENOSPC)
       assembler.pending?.should be_false
     end
 
     it "rejects a corrupt continuation" do
       assembler = Gfx::Assembler.new
-      assembler.feed(apc("\e_Ga=T,f=100,i=1,m=1;AQID\e\\")).should be_nil
-      failure = assembler.feed(apc("\e_Gm=0;!!!!\e\\")).as(Gfx::Failure)
+      feed(assembler, "\e_Ga=T,f=100,i=1,m=1;AQID\e\\").should be_nil
+      failure = feed(assembler, "\e_Gm=0;!!!!\e\\").as(Gfx::Failure)
       failure.code.should eq(Gfx::ErrorCode::EINVAL)
       assembler.pending?.should be_false
     end
@@ -546,7 +564,7 @@ describe TTY::Codec::Gfx do
       results   = [] of Gfx::Command | Gfx::Failure
 
       Gfx.encode(transmit, 64) do |chunk|
-        outcome = assembler.feed(apc(chunk))
+        outcome = assembler.feed(extract_payload(apc(chunk)))
         results << outcome if outcome
       end
 
@@ -565,7 +583,7 @@ describe TTY::Codec::Gfx do
       results   = [] of Gfx::Command | Gfx::Failure
 
       Gfx.encode(transmit, 32) do |chunk|
-        outcome = assembler.feed(apc(chunk))
+        outcome = assembler.feed(extract_payload(apc(chunk)))
         results << outcome if outcome
       end
 
@@ -585,7 +603,7 @@ describe TTY::Codec::Gfx do
       results   = [] of Gfx::Command | Gfx::Failure
 
       Gfx.encode(frame, 40) do |chunk|
-        outcome = assembler.feed(apc(chunk))
+        outcome = assembler.feed(extract_payload(apc(chunk)))
         results << outcome if outcome
       end
 

@@ -1,7 +1,6 @@
 # src/tty/codec/gfx.cr
 require "base64"
 require "compress/zlib"
-require "../token"
 
 @[Link("c")]
 {% unless flag?(:darwin) %}
@@ -507,9 +506,9 @@ module TTY::Codec::Gfx
     end
   end
 
-  def self.command(token : TTY::Token) : Command | Chunk | Failure | Nil
-    body = body_of(token)
-    return nil if body.nil?
+  def self.command(payload : Bytes) : Command | Chunk | Failure | Nil
+    return nil if payload.empty? || payload.unsafe_fetch(0) != 0x47_u8
+    body = payload[1, payload.size - 1]
 
     separator = body.index(0x3b_u8)
     control   = separator ? body[0, separator] : body
@@ -528,18 +527,18 @@ module TTY::Codec::Gfx
       return Failure.new(ErrorCode::EINVAL, "i and I are mutually exclusive", id, quiet)
     end
 
-    payload = decode_payload(encoded)
-    return Failure.new(ErrorCode::EINVAL, "invalid base64 payload", id, quiet) if payload.nil?
+    decoded_payload = decode_payload(encoded)
+    return Failure.new(ErrorCode::EINVAL, "invalid base64 payload", id, quiet) if decoded_payload.nil?
 
     case keys.k_a.unsafe_chr
     when 't'
-      source = build_source(keys, payload, id, quiet)
+      source = build_source(keys, decoded_payload, id, quiet)
       source.is_a?(Failure) ? source : Transmit.new(id, source, nil, quiet)
     when 'T'
-      source = build_source(keys, payload, id, quiet)
+      source = build_source(keys, decoded_payload, id, quiet)
       source.is_a?(Failure) ? source : Transmit.new(id, source, build_placement(keys), quiet)
     when 'q'
-      source = build_source(keys, payload, id, quiet)
+      source = build_source(keys, decoded_payload, id, quiet)
       source.is_a?(Failure) ? source : Query.new(id, source, quiet)
     when 'p'
       Put.new(id, build_placement(keys), quiet)
@@ -549,7 +548,7 @@ module TTY::Codec::Gfx
       target, free = selector
       Delete.new(id, target, free, narrow(keys.k_x), narrow(keys.k_y), narrow(keys.k_z), quiet)
     when 'f'
-      source = build_source(keys, payload, id, quiet)
+      source = build_source(keys, decoded_payload, id, quiet)
       source.is_a?(Failure) ? source : FrameTransmit.new(id, source, build_frame(keys), quiet)
     when 'a'
       state = AnimState.from_value?(narrow(keys.k_s))
@@ -572,9 +571,9 @@ module TTY::Codec::Gfx
     end
   end
 
-  def self.response(token : TTY::Token) : Response?
-    body = body_of(token)
-    return nil if body.nil?
+  def self.response(payload : Bytes) : Response?
+    return nil if payload.empty? || payload.unsafe_fetch(0) != 0x47_u8
+    body = payload[1, payload.size - 1]
 
     separator = body.index(0x3b_u8)
     return nil if separator.nil?
@@ -921,24 +920,6 @@ module TTY::Codec::Gfx
     nil
   end
 
-  private def self.body_of(token : TTY::Token) : Bytes?
-    return nil unless token.kind.apc?
-    return nil if token.malformed?
-
-    bytes = token.bytes
-
-    offset = if bytes.size >= 2 && bytes.unsafe_fetch(0) == 0x1b_u8 && bytes.unsafe_fetch(1) == 0x5f_u8
-               2
-             elsif bytes.size >= 1 && bytes.unsafe_fetch(0) == 0x9f_u8
-               1
-             else
-               return nil
-             end
-
-    return nil unless bytes.size > offset && bytes.unsafe_fetch(offset) == 0x47_u8
-    bytes[offset + 1, bytes.size - offset - 1]
-  end
-
   private def self.parse_keys(control : Bytes) : Keys | ErrorCode
     keys  = Keys.new
     index = 0
@@ -1255,8 +1236,8 @@ module TTY::Codec::Gfx
       @data.clear
     end
 
-    def feed(token : TTY::Token) : Command | Failure | Nil
-      decoded = Gfx.command(token)
+    def feed(payload : Bytes) : Command | Failure | Nil
+      decoded = Gfx.command(payload)
       return nil if decoded.nil?
 
       if decoded.is_a?(Failure)
