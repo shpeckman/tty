@@ -2,8 +2,6 @@
 require "./token"
 
 module TTY::VT
-  alias Token = TTY::Token
-
   enum State : UInt8
     APC       =  1
     CSIEntry  =  2
@@ -438,3 +436,4 @@ module TTY::VT
     end
   end
 end
+

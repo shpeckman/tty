@@ -29,9 +29,9 @@ module TTY
 
   struct TokensDecoded
     include MVU::Msg
-    getter tokens : Array(Token)
+    getter tokens : Array(TTY::VT::Token)
 
-    def initialize(@tokens : Array(Token))
+    def initialize(@tokens : Array(TTY::VT::Token))
     end
   end
 
@@ -43,3 +43,4 @@ module TTY
     end
   end
 end
+

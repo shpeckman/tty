@@ -255,9 +255,9 @@ struct TTY::PTY
               if @interceptors.empty?
                 dispatch.call(TokensDecoded.new(tokens)) unless tokens.empty?
               else
-                passthrough = [] of Token
+                passthrough = [] of TTY::VT::Token
                 tokens.each do |token|
-                  current : Token? = token
+                  current : TTY::VT::Token? = token
                   @interceptors.each do |interceptor|
                     break unless current
                     current = interceptor.intercept(current)
@@ -290,3 +290,4 @@ struct TTY::PTY
     end
   end
 end
+
