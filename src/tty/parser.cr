@@ -225,7 +225,7 @@ module VT
   })
 
   class Parser
-    DEFAULT_CAPACITY = 1024
+    DEFAULT_CAPACITY = 8192
 
     getter state    : State
     getter capacity : Int32

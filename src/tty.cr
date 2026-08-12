@@ -6,6 +6,7 @@ require "./tty/token"
 require "./tty/parser"
 require "./tty/messages"
 require "./tty/pty"
+require "./tty/codec/gfx"
 
 module TTY
   VERSION = {{ `shards version "#{__DIR__}"`.chomp.stringify }}
