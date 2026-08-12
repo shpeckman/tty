@@ -3,10 +3,39 @@ require "base64"
 require "compress/zlib"
 require "../token"
 
+@[Link("c")]
+{% unless flag?(:darwin) %}
+  @[Link("rt")]
+{% end %}
+lib LibC
+  {% unless LibC.has_method?(:shm_open) %}
+    fun shm_open(name : LibC::Char*, oflag : LibC::Int, mode : LibC::ModeT) : LibC::Int
+  {% end %}
+  {% unless LibC.has_method?(:shm_unlink) %}
+    fun shm_unlink(name : LibC::Char*) : LibC::Int
+  {% end %}
+  {% unless LibC.has_method?(:open) %}
+    fun open(pathname : LibC::Char*, flags : LibC::Int, ...) : LibC::Int
+  {% end %}
+end
+
 module TTY::Codec::Gfx
-  MAX_CHUNK    = 4096
-  MIN_CAPACITY = 4352
+  MAX_CHUNK    =             4096
+  MIN_CAPACITY =             4352
   MAX_PAYLOAD  = 32 * 1024 * 1024
+
+  O_RDONLY = 0
+
+  {% if flag?(:darwin) %}
+    O_NONBLOCK = 0x0004
+    O_CLOEXEC  = 0x1000000
+  {% elsif flag?(:bsd) %}
+    O_NONBLOCK = 0x0004
+    O_CLOEXEC  = 0x00100000
+  {% else %}
+    O_NONBLOCK = 0o4000
+    O_CLOEXEC  = 0o2000000
+  {% end %}
 
   NO_DATA = Bytes.empty
 
@@ -102,16 +131,16 @@ module TTY::Codec::Gfx
   end
 
   struct Source
-    getter format      : Format
-    getter medium      : Medium
-    getter width       : Int32
-    getter height      : Int32
-    getter size        : Int32
-    getter offset      : Int32
-    getter compression : Compression
-    getter hints       : Int32
-    getter payload     : Bytes
-    getter? more       : Bool
+    getter  format      : Format
+    getter  medium      : Medium
+    getter  width       : Int32
+    getter  height      : Int32
+    getter  size        : Int32
+    getter  offset      : Int32
+    getter  compression : Compression
+    getter  hints       : Int32
+    getter  payload     : Bytes
+    getter? more        : Bool
 
     def self.png(data : Bytes, compression : Compression = Compression::None) : Source
       new(payload: data, format: Format::PNG, compression: compression)
@@ -125,16 +154,16 @@ module TTY::Codec::Gfx
       new(payload: data, format: Format::RGB, width: width, height: height, compression: compression)
     end
 
-    def self.file(path : String, format : Format = Format::PNG) : Source
-      new(payload: path.to_slice, format: format, medium: Medium::File)
+    def self.file(path : String, format : Format = Format::PNG, size : Int32 = 0, offset : Int32 = 0) : Source
+      new(payload: path.to_slice, format: format, medium: Medium::File, size: size, offset: offset)
     end
 
-    def self.temp_file(path : String, format : Format = Format::PNG) : Source
-      new(payload: path.to_slice, format: format, medium: Medium::TempFile)
+    def self.temp_file(path : String, format : Format = Format::PNG, size : Int32 = 0, offset : Int32 = 0) : Source
+      new(payload: path.to_slice, format: format, medium: Medium::TempFile, size: size, offset: offset)
     end
 
-    def self.shared(name : String, format : Format = Format::PNG) : Source
-      new(payload: name.to_slice, format: format, medium: Medium::SharedMemory)
+    def self.shared(name : String, format : Format = Format::PNG, size : Int32 = 0, offset : Int32 = 0) : Source
+      new(payload: name.to_slice, format: format, medium: Medium::SharedMemory, size: size, offset: offset)
     end
 
     def initialize(
@@ -162,24 +191,28 @@ module TTY::Codec::Gfx
     def with_payload(payload : Bytes) : Source
       Source.new(payload, @format, @medium, @width, @height, @size, @offset, @compression, @hints, false)
     end
+
+    def loaded(payload : Bytes) : Source
+      Source.new(payload, @format, Medium::Direct, @width, @height, 0, 0, Compression::None, @hints, false)
+    end
   end
 
   struct Placement
-    getter x                : Int32
-    getter y                : Int32
-    getter width            : Int32
-    getter height           : Int32
-    getter cell_x           : Int32
-    getter cell_y           : Int32
-    getter columns          : Int32
-    getter rows             : Int32
-    getter z                : Int32
-    getter parent           : UInt32
-    getter parent_placement : UInt32
-    getter offset_x         : Int32
-    getter offset_y         : Int32
-    getter? move_cursor     : Bool
-    getter? virtual         : Bool
+    getter  x                : Int32
+    getter  y                : Int32
+    getter  width            : Int32
+    getter  height           : Int32
+    getter  cell_x           : Int32
+    getter  cell_y           : Int32
+    getter  columns          : Int32
+    getter  rows             : Int32
+    getter  z                : Int32
+    getter  parent           : UInt32
+    getter  parent_placement : UInt32
+    getter  offset_x         : Int32
+    getter  offset_y         : Int32
+    getter? move_cursor      : Bool
+    getter? virtual          : Bool
 
     def initialize(
       @x : Int32 = 0,
@@ -251,12 +284,12 @@ module TTY::Codec::Gfx
   end
 
   struct Delete
-    getter id         : Id
-    getter target     : DeleteTarget
-    getter x          : Int32
-    getter y          : Int32
-    getter z          : Int32
-    getter quiet      : Quiet
+    getter  id        : Id
+    getter  target    : DeleteTarget
+    getter  x         : Int32
+    getter  y         : Int32
+    getter  z         : Int32
+    getter  quiet     : Quiet
     getter? free_data : Bool
 
     def initialize(
@@ -326,10 +359,10 @@ module TTY::Codec::Gfx
   alias Command = Transmit | Query | Put | Delete | FrameTransmit | Animate | Compose
 
   struct Chunk
-    getter encoded : Bytes
-    getter quiet   : Quiet
-    getter? more   : Bool
-    getter? frame  : Bool
+    getter  encoded : Bytes
+    getter  quiet   : Quiet
+    getter? more    : Bool
+    getter? frame   : Bool
 
     def initialize(@encoded : Bytes, @quiet : Quiet = Quiet::All, @more : Bool = false, @frame : Bool = false)
     end
@@ -388,10 +421,10 @@ module TTY::Codec::Gfx
   end
 
   struct Failure
-    getter code : ErrorCode,
-      message : String,
-      id      : Id,
-      quiet   : Quiet
+    getter code    : ErrorCode
+    getter message : String
+    getter id      : Id
+    getter quiet   : Quiet
 
     def initialize(@code : ErrorCode, @message : String = "", @id : Id = Id.new, @quiet : Quiet = Quiet::All)
     end
@@ -434,41 +467,41 @@ module TTY::Codec::Gfx
   end
 
   private struct Keys
-    property k_a : UInt8 = 0x74_u8,
-      k_t        : UInt8 = 0x64_u8,
-      k_o        : UInt8 = 0_u8,
-      k_d        : UInt8 = 0x61_u8,
-      k_q        : Int64 = 0_i64,
-      k_f        : Int64 = 32_i64,
-      k_s        : Int64 = 0_i64,
-      k_v        : Int64 = 0_i64,
-      k_big_s    : Int64 = 0_i64,
-      k_big_o    : Int64 = 0_i64,
-      k_i        : Int64 = 0_i64,
-      k_big_i    : Int64 = 0_i64,
-      k_p        : Int64 = 0_i64,
-      k_m        : Int64 = 0_i64,
-      k_big_n    : Int64 = 0_i64,
-      k_x        : Int64 = 0_i64,
-      k_y        : Int64 = 0_i64,
-      k_w        : Int64 = 0_i64,
-      k_h        : Int64 = 0_i64,
-      k_big_x    : Int64 = 0_i64,
-      k_big_y    : Int64 = 0_i64,
-      k_c        : Int64 = 0_i64,
-      k_r        : Int64 = 0_i64,
-      k_big_c    : Int64 = 0_i64,
-      k_big_u    : Int64 = 0_i64,
-      k_z        : Int64 = 0_i64,
-      k_big_p    : Int64 = 0_i64,
-      k_big_q    : Int64 = 0_i64,
-      k_big_h    : Int64 = 0_i64,
-      k_big_v    : Int64 = 0_i64,
-      has_action : Bool  = false,
-      has_id     : Bool  = false,
-      has_number : Bool  = false,
-      has_more   : Bool  = false,
-      extra      : Bool  = false
+    property k_a       : UInt8 = 0x74_u8
+    property k_t       : UInt8 = 0x64_u8
+    property k_o       : UInt8 = 0_u8
+    property k_d       : UInt8 = 0x61_u8
+    property k_q       : Int64 = 0_i64
+    property k_f       : Int64 = 32_i64
+    property k_s       : Int64 = 0_i64
+    property k_v       : Int64 = 0_i64
+    property k_big_s   : Int64 = 0_i64
+    property k_big_o   : Int64 = 0_i64
+    property k_i       : Int64 = 0_i64
+    property k_big_i   : Int64 = 0_i64
+    property k_p       : Int64 = 0_i64
+    property k_m       : Int64 = 0_i64
+    property k_big_n   : Int64 = 0_i64
+    property k_x       : Int64 = 0_i64
+    property k_y       : Int64 = 0_i64
+    property k_w       : Int64 = 0_i64
+    property k_h       : Int64 = 0_i64
+    property k_big_x   : Int64 = 0_i64
+    property k_big_y   : Int64 = 0_i64
+    property k_c       : Int64 = 0_i64
+    property k_r       : Int64 = 0_i64
+    property k_big_c   : Int64 = 0_i64
+    property k_big_u   : Int64 = 0_i64
+    property k_z       : Int64 = 0_i64
+    property k_big_p   : Int64 = 0_i64
+    property k_big_q   : Int64 = 0_i64
+    property k_big_h   : Int64 = 0_i64
+    property k_big_v   : Int64 = 0_i64
+    property has_action : Bool = false
+    property has_id     : Bool = false
+    property has_number : Bool = false
+    property has_more   : Bool = false
+    property extra      : Bool = false
 
     def initialize
     end
@@ -479,8 +512,8 @@ module TTY::Codec::Gfx
     return nil if body.nil?
 
     separator = body.index(0x3b_u8)
-    control   = separator ? body[0, separator] : body
-    encoded   = separator ? body[separator + 1, body.size - separator - 1] : NO_DATA
+    control = separator ? body[0, separator] : body
+    encoded = separator ? body[separator + 1, body.size - separator - 1] : NO_DATA
 
     parsed = parse_keys(control)
     return Failure.new(ErrorCode::EINVAL, "invalid control data") if parsed.is_a?(ErrorCode)
@@ -569,6 +602,15 @@ module TTY::Codec::Gfx
     end
   end
 
+  def self.with_source(command : Command, source : Source) : Command
+    case command
+    in Transmit      then Transmit.new(command.id, source, command.placement, command.quiet)
+    in Query         then Query.new(command.id, source, command.quiet)
+    in FrameTransmit then FrameTransmit.new(command.id, source, command.frame, command.quiet)
+    in Put, Delete, Animate, Compose then command
+    end
+  end
+
   def self.inflate(data : Bytes) : Bytes?
     output = IO::Memory.new
     Compress::Zlib::Reader.open(IO::Memory.new(data)) { |reader| IO.copy(reader, output) }
@@ -584,8 +626,8 @@ module TTY::Codec::Gfx
   end
 
   def self.encode(command : Command, chunk_size : Int32 = MAX_CHUNK, & : Bytes ->) : Nil
-    limit   = chunk_size < 4 ? 4 : (chunk_size >> 2) << 2
-    source  = source_of(command)
+    limit  = chunk_size < 4 ? 4 : (chunk_size >> 2) << 2
+    source = source_of(command)
     encoded = source ? encode_payload(source) : NO_DATA
 
     if encoded.size <= limit
@@ -772,7 +814,7 @@ module TTY::Codec::Gfx
 
   private def self.delete_target(letter : UInt8) : {DeleteTarget, Bool}?
     character = letter.unsafe_chr
-    free      = character >= 'A' && character <= 'Z'
+    free = character >= 'A' && character <= 'Z'
 
     target = case character.downcase
              when 'a' then DeleteTarget::All
@@ -805,7 +847,7 @@ module TTY::Codec::Gfx
     return Failure.new(ErrorCode::EINVAL, "unsupported transmission medium", id, quiet) if medium.nil?
 
     compression = case keys.k_o
-                  when    0_u8 then Compression::None
+                  when 0_u8    then Compression::None
                   when 0x7a_u8 then Compression::Deflate
                   end
     return Failure.new(ErrorCode::EINVAL, "unsupported compression", id, quiet) if compression.nil?
@@ -1014,6 +1056,177 @@ module TTY::Codec::Gfx
     value.to_u32
   end
 
+  struct Policy
+    TEMP_MARKER  = "tty-graphics-protocol"
+    DENIED_ROOTS = ["/proc", "/sys", "/dev"]
+
+    getter  max_size     : Int32
+    getter  temp_roots   : Array(String)
+    getter  denied_roots : Array(String)
+    getter  temp_marker  : String
+    getter? allow_file   : Bool
+    getter? allow_temp   : Bool
+    getter? allow_shared : Bool
+    getter? delete_temp  : Bool
+
+    def self.temp_directories : Array(String)
+      roots = ["/tmp", "/dev/shm"]
+      if directory = ENV["TMPDIR"]?
+        roots << directory.rstrip('/') unless directory.empty?
+      end
+      roots
+    end
+
+    def self.sealed : Policy
+      new(allow_file: false, allow_temp: false, allow_shared: false)
+    end
+
+    def initialize(
+      @max_size : Int32 = MAX_PAYLOAD,
+      @temp_roots : Array(String) = Policy.temp_directories,
+      @denied_roots : Array(String) = DENIED_ROOTS,
+      @temp_marker : String = TEMP_MARKER,
+      @allow_file : Bool = true,
+      @allow_temp : Bool = true,
+      @allow_shared : Bool = true,
+    )
+    end
+
+    def permits?(medium : Medium) : Bool
+      case medium
+      in Medium::Direct       then true
+      in Medium::File         then @allow_file
+      in Medium::TempFile     then @allow_temp
+      in Medium::SharedMemory then @allow_shared
+      end
+    end
+
+    def temporary?(path : String) : Bool
+      @temp_roots.any? { |root| Policy.under?(path, root) }
+    end
+
+    def denied?(path : String) : Bool
+      return false if temporary?(path)
+      @denied_roots.any? { |root| Policy.under?(path, root) }
+    end
+
+    def deletable?(path : String) : Bool
+      @delete_temp && temporary?(path) && path.includes?(@temp_marker)
+    end
+
+    def self.under?(path : String, root : String) : Bool
+      path == root || path.starts_with?("#{root}/")
+    end
+  end
+
+  class Loader
+    getter policy : Policy
+
+    def initialize(@policy : Policy = Policy.new)
+    end
+
+    def resolve(command : Command) : Command | Failure
+      source = Gfx.source_of(command)
+      return command if source.nil? || source.medium.direct? || source.more?
+
+      loaded = load(source, command.id, command.quiet)
+      return loaded if loaded.is_a?(Failure)
+
+      Gfx.with_source(command, source.loaded(loaded))
+    end
+
+    def load(source : Source, id : Id = Id.new, quiet : Quiet = Quiet::All) : Bytes | Failure
+      medium = source.medium
+      return Failure.new(ErrorCode::EINVAL, "payload is already direct", id, quiet) if medium.direct?
+
+      unless @policy.permits?(medium)
+        return Failure.new(ErrorCode::EBADF, "transmission medium is not permitted", id, quiet)
+      end
+
+      name = String.new(source.payload)
+      return Failure.new(ErrorCode::EBADF, "empty path", id, quiet) if name.empty?
+
+      outcome = medium.shared_memory? ? read_shared(name, source) : read_file(name, source, medium)
+      return Failure.new(outcome[0], outcome[1], id, quiet) if outcome.is_a?(Tuple(ErrorCode, String))
+
+      return outcome unless source.compression.deflate?
+
+      inflated = Gfx.inflate(outcome)
+      return Failure.new(ErrorCode::EINVAL, "invalid deflate stream", id, quiet) if inflated.nil?
+      inflated
+    end
+
+    private def read_file(path : String, source : Source, medium : Medium) : Bytes | Tuple(ErrorCode, String)
+      resolved = File.expand_path(path)
+
+      if @policy.denied?(resolved)
+        return {ErrorCode::EBADF, "path is in a restricted directory"}
+      end
+
+      fd = LibC.open(resolved.to_unsafe, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+      return {ErrorCode::EBADF, "cannot open #{errno_text}"} if fd < 0
+
+      begin
+        data = read_descriptor(fd, source)
+      rescue
+        return {ErrorCode::EBADF, "read failed"}
+      end
+
+      if medium.temp_file? && !data.is_a?(Tuple(ErrorCode, String)) && @policy.deletable?(resolved)
+        File.delete(resolved) rescue nil
+      end
+
+      data
+    end
+
+    private def read_shared(name : String, source : Source) : Bytes | Tuple(ErrorCode, String)
+      fd = LibC.shm_open(name.to_unsafe, O_RDONLY, LibC::ModeT.new(0))
+      return {ErrorCode::EBADF, "cannot open shared memory #{errno_text}"} if fd < 0
+
+      begin
+        data = read_descriptor(fd, source)
+      rescue
+        return {ErrorCode::EBADF, "read failed"}
+      ensure
+        LibC.shm_unlink(name.to_unsafe)
+      end
+
+      data
+    end
+
+    private def read_descriptor(fd : LibC::Int, source : Source) : Bytes | Tuple(ErrorCode, String)
+      io = IO::FileDescriptor.new(fd, blocking: true)
+
+      begin
+        info = io.info
+        return {ErrorCode::EBADF, "not a regular file"} unless info.type.file?
+
+        total  = info.size
+        offset = source.offset.to_i64
+        return {ErrorCode::EBADF, "offset is past the end of the data"} if offset > total
+
+        available = total - offset
+        wanted    = source.size.zero? ? available : Math.min(source.size.to_i64, available)
+
+        return Bytes.empty if wanted <= 0
+        return {ErrorCode::ENOSPC, "data exceeds the loader quota"} if wanted > @policy.max_size
+
+        io.seek(offset) if offset > 0
+
+        buffer = Bytes.new(wanted.to_i32)
+        return {ErrorCode::EBADF, "unexpected end of data"} unless io.read_fully?(buffer)
+
+        buffer
+      ensure
+        io.close rescue nil
+      end
+    end
+
+    private def errno_text : String
+      Errno.value.to_s
+    end
+  end
+
   class Assembler
     getter max_payload : Int32
 
@@ -1125,31 +1338,18 @@ module TTY::Codec::Gfx
     end
 
     private def rebuild(pending : Command, data : Bytes) : Command | Failure
-      case pending
-      in Transmit
-        source = complete(pending.source, data, pending.id, pending.quiet)
-        source.is_a?(Failure) ? source : Transmit.new(pending.id, source, pending.placement, pending.quiet)
-      in Query
-        source = complete(pending.source, data, pending.id, pending.quiet)
-        source.is_a?(Failure) ? source : Query.new(pending.id, source, pending.quiet)
-      in FrameTransmit
-        source = complete(pending.source, data, pending.id, pending.quiet)
-        source.is_a?(Failure) ? source : FrameTransmit.new(pending.id, source, pending.frame, pending.quiet)
-      in Put, Delete, Animate, Compose
-        pending
-      end
-    end
+      source = Gfx.source_of(pending)
+      return pending if source.nil?
 
-    private def complete(source : Source, data : Bytes, id : Id, quiet : Quiet) : Source | Failure
       payload = data
 
       if source.medium.direct? && source.compression.deflate?
         inflated = Gfx.inflate(data)
-        return Failure.new(ErrorCode::EINVAL, "invalid deflate stream", id, quiet) if inflated.nil?
+        return Failure.new(ErrorCode::EINVAL, "invalid deflate stream", pending.id, pending.quiet) if inflated.nil?
         payload = inflated
       end
 
-      source.with_payload(payload)
+      Gfx.with_source(pending, source.with_payload(payload))
     end
 
     private def quota(command : Command) : Failure
