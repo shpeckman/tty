@@ -4,7 +4,7 @@ require "../../spec_helper"
 private alias Gfx = TTY::Codec::Gfx
 
 private def apc(sequence : Bytes) : TTY::Token
-  VT::Parser.new.parse(sequence).find { |token| token.kind.apc? }.not_nil!
+  TTY::VT::Parser.new.parse(sequence).find { |token| token.kind.apc? }.not_nil!
 end
 
 private def apc(sequence : String) : TTY::Token
@@ -31,7 +31,7 @@ end
 describe TTY::Codec::Gfx do
   describe "capacity" do
     it "fits a full chunk within the default parser buffer" do
-      Gfx::MIN_CAPACITY.should be <= VT::Parser::DEFAULT_CAPACITY
+      Gfx::MIN_CAPACITY.should be <= TTY::VT::Parser::DEFAULT_CAPACITY
     end
 
     it "decodes a full sized chunk without truncation" do
@@ -44,7 +44,7 @@ describe TTY::Codec::Gfx do
 
   describe "rejection" do
     it "ignores non-apc tokens" do
-      Gfx.command(VT::Parser.new.parse("\e[1m")[0]).should be_nil
+      Gfx.command(TTY::VT::Parser.new.parse("\e[1m")[0]).should be_nil
     end
 
     it "ignores apc sequences that are not graphics commands" do
@@ -52,7 +52,7 @@ describe TTY::Codec::Gfx do
     end
 
     it "ignores truncated tokens" do
-      token = VT::Parser.new(capacity: 8).parse("\e_Ga=T,f=100;AQID\e\\")[0]
+      token = TTY::VT::Parser.new(capacity: 8).parse("\e_Ga=T,f=100;AQID\e\\")[0]
       token.malformed?.should be_true
       Gfx.command(token).should be_nil
     end

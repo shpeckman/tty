@@ -15,17 +15,17 @@ private def text(tokens)
   String.new(bytes(tokens.select(&.text?)))
 end
 
-describe VT::Parser do
+describe TTY::VT::Parser do
   describe "text" do
     it "emits ground text as a run of single-codepoint tokens" do
-      tokens = VT::Parser.new.parse("hi")
+      tokens = TTY::VT::Parser.new.parse("hi")
       kinds(tokens).should eq([TTY::Token::Kind::Text, TTY::Token::Kind::Text])
       text(tokens).should eq("hi")
       tokens.each { |token| token.malformed?.should be_false }
     end
 
     it "splits C0 controls out of text" do
-      tokens = VT::Parser.new.parse("ab\ncd")
+      tokens = TTY::VT::Parser.new.parse("ab\ncd")
       kinds(tokens).should eq([
         TTY::Token::Kind::Text,
         TTY::Token::Kind::Text,
@@ -40,7 +40,7 @@ describe VT::Parser do
 
   describe "utf-8 boundary handling" do
     it "assembles a two-byte codepoint split across parse calls" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       first  = parser.parse(Bytes[0x61, 0xC2])
       second = parser.parse(Bytes[0xA5, 0x62])
 
@@ -54,7 +54,7 @@ describe VT::Parser do
     end
 
     it "assembles a three-byte codepoint fed one byte at a time" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse(Bytes[0xE2]).should be_empty
       parser.parse(Bytes[0x82]).should be_empty
       tokens = parser.parse(Bytes[0xAC])
@@ -65,7 +65,7 @@ describe VT::Parser do
     end
 
     it "assembles a four-byte codepoint split across calls" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse(Bytes[0xF0, 0x9F]).should be_empty
       tokens = parser.parse(Bytes[0x98, 0x80])
 
@@ -74,13 +74,13 @@ describe VT::Parser do
     end
 
     it "emits a complete trailing codepoint without holding it" do
-      tokens = VT::Parser.new.parse("¥")
+      tokens = TTY::VT::Parser.new.parse("¥")
       tokens.size.should eq(1)
       String.new(tokens[0].bytes).should eq("¥")
     end
 
     it "resolves a held lead terminated by a non-continuation byte as malformed" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse(Bytes[0xE2]).should be_empty
       tokens = parser.parse(Bytes[0x41])
 
@@ -92,7 +92,7 @@ describe VT::Parser do
     end
 
     it "marks a stray continuation byte with no lead as malformed" do
-      tokens = VT::Parser.new.parse(Bytes[0xA5])
+      tokens = TTY::VT::Parser.new.parse(Bytes[0xA5])
       tokens.size.should eq(1)
       tokens[0].kind.should eq(TTY::Token::Kind::Text)
       tokens[0].malformed?.should be_true
@@ -100,7 +100,7 @@ describe VT::Parser do
     end
 
     it "flushes a held partial codepoint as malformed text" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse(Bytes[0xF0, 0x9F]).should be_empty
       flushed = parser.flush
 
@@ -111,7 +111,7 @@ describe VT::Parser do
     end
 
     it "flushes a held codepoint before a following control" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       tokens = parser.parse(Bytes[0xE2, 0x0A])
 
       kinds(tokens).should eq([TTY::Token::Kind::Text, TTY::Token::Kind::C0])
@@ -123,14 +123,14 @@ describe VT::Parser do
 
   describe "escape sequences" do
     it "tokenizes a CSI sequence" do
-      tokens = VT::Parser.new.parse("\e[1;2m")
+      tokens = TTY::VT::Parser.new.parse("\e[1;2m")
       tokens.size.should eq(1)
       tokens[0].kind.should eq(TTY::Token::Kind::CSI)
       String.new(tokens[0].bytes).should eq("\e[1;2m")
     end
 
     it "tokenizes a CSI split across parse calls" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse("\e[1").should be_empty
       tokens = parser.parse(";2m")
       tokens.size.should eq(1)
@@ -138,12 +138,12 @@ describe VT::Parser do
     end
 
     it "emits SS2 and SS3 from their two-byte ESC forms" do
-      kinds(VT::Parser.new.parse("\eN")).should eq([TTY::Token::Kind::SS2])
-      kinds(VT::Parser.new.parse("\eO")).should eq([TTY::Token::Kind::SS3])
+      kinds(TTY::VT::Parser.new.parse("\eN")).should eq([TTY::Token::Kind::SS2])
+      kinds(TTY::VT::Parser.new.parse("\eO")).should eq([TTY::Token::Kind::SS3])
     end
 
     it "emits a bare two-byte ESC sequence" do
-      tokens = VT::Parser.new.parse("\eM")
+      tokens = TTY::VT::Parser.new.parse("\eM")
       tokens[0].kind.should eq(TTY::Token::Kind::ESC)
       String.new(tokens[0].bytes).should eq("\eM")
     end
@@ -151,12 +151,12 @@ describe VT::Parser do
 
   describe "c1 controls" do
     it "emits SS2 and SS3 from single-byte C1 bytes" do
-      kinds(VT::Parser.new.parse(Bytes[0x8E])).should eq([TTY::Token::Kind::SS2])
-      kinds(VT::Parser.new.parse(Bytes[0x8F])).should eq([TTY::Token::Kind::SS3])
+      kinds(TTY::VT::Parser.new.parse(Bytes[0x8E])).should eq([TTY::Token::Kind::SS2])
+      kinds(TTY::VT::Parser.new.parse(Bytes[0x8F])).should eq([TTY::Token::Kind::SS3])
     end
 
     it "enters a CSI from the C1 introducer" do
-      tokens = VT::Parser.new.parse(Bytes[0x9B, 0x31, 0x6D])
+      tokens = TTY::VT::Parser.new.parse(Bytes[0x9B, 0x31, 0x6D])
       tokens.size.should eq(1)
       tokens[0].kind.should eq(TTY::Token::Kind::CSI)
     end
@@ -164,30 +164,30 @@ describe VT::Parser do
 
   describe "string sequences" do
     it "terminates an OSC on BEL" do
-      tokens = VT::Parser.new.parse("\e]0;title\a")
+      tokens = TTY::VT::Parser.new.parse("\e]0;title\a")
       tokens[0].kind.should eq(TTY::Token::Kind::OSC)
       String.new(tokens[0].bytes).should eq("\e]0;title")
     end
 
     it "terminates a DCS on ST" do
-      tokens = VT::Parser.new.parse("\ePq#0\e\\")
+      tokens = TTY::VT::Parser.new.parse("\ePq#0\e\\")
       tokens[0].kind.should eq(TTY::Token::Kind::DCS)
       String.new(tokens[0].bytes).should eq("\ePq#0")
     end
 
     it "terminates an APC on ST" do
-      tokens = VT::Parser.new.parse("\e_payload\e\\")
+      tokens = TTY::VT::Parser.new.parse("\e_payload\e\\")
       tokens[0].kind.should eq(TTY::Token::Kind::APC)
       String.new(tokens[0].bytes).should eq("\e_payload")
     end
 
     it "terminates a PM on ST" do
-      tokens = VT::Parser.new.parse("\e^data\e\\")
+      tokens = TTY::VT::Parser.new.parse("\e^data\e\\")
       tokens[0].kind.should eq(TTY::Token::Kind::PM)
     end
 
     it "emits an OSC split across parse calls" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse("\e]0;ti").should be_empty
       tokens = parser.parse("tle\a")
       tokens.size.should eq(1)
@@ -198,7 +198,7 @@ describe VT::Parser do
 
   describe "flush" do
     it "flushes an incomplete CSI as malformed under its kind" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse("\e[1;2").should be_empty
       flushed = parser.flush
       flushed.size.should eq(1)
@@ -208,7 +208,7 @@ describe VT::Parser do
     end
 
     it "flushes an unterminated OSC as malformed under its kind" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse("\e]0;partial").should be_empty
       flushed = parser.flush
       flushed.size.should eq(1)
@@ -217,7 +217,7 @@ describe VT::Parser do
     end
 
     it "flushes a lone trailing ESC as a malformed ESC token" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse("\e").should be_empty
       flushed = parser.flush
       flushed.size.should eq(1)
@@ -226,13 +226,13 @@ describe VT::Parser do
     end
 
     it "flushes cleanly when nothing is held" do
-      VT::Parser.new.flush.should be_empty
+      TTY::VT::Parser.new.flush.should be_empty
     end
   end
 
   describe "string cap" do
     it "truncates an overlong OSC and marks it truncated" do
-      parser = VT::Parser.new(capacity: 8)
+      parser = TTY::VT::Parser.new(capacity: 8)
       tokens = parser.parse(("\e]0;" + "x" * 64 + "\a"))
 
       tokens.size.should eq(1)
@@ -242,14 +242,14 @@ describe VT::Parser do
     end
 
     it "recovers ground text after a truncated string terminates" do
-      parser = VT::Parser.new(capacity: 8)
+      parser = TTY::VT::Parser.new(capacity: 8)
       parser.parse(("\e]0;" + "x" * 64 + "\a"))
       following = parser.parse("hi")
       text(following).should eq("hi")
     end
 
     it "truncates an overlong CSI" do
-      parser = VT::Parser.new(capacity: 4)
+      parser = TTY::VT::Parser.new(capacity: 4)
       tokens = parser.parse(("\e[" + "1;" * 32 + "m"))
       tokens.size.should eq(1)
       tokens[0].kind.should eq(TTY::Token::Kind::CSI)
@@ -260,7 +260,7 @@ describe VT::Parser do
 
   describe "reset" do
     it "clears held codepoint and sequence state" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       parser.parse(Bytes[0xF0, 0x9F])
       parser.parse("\e[1")
       parser.reset
@@ -273,7 +273,7 @@ describe VT::Parser do
 
   describe "ownership" do
     it "returns tokens that own their bytes past the next parse" do
-      parser = VT::Parser.new
+      parser = TTY::VT::Parser.new
       first  = parser.parse(Bytes[0xC2, 0xA5])
       String.new(first[0].bytes).should eq("¥")
 
@@ -283,7 +283,7 @@ describe VT::Parser do
 
     it "yields single-codepoint tokens to the block form" do
       collected = [] of TTY::Token::Kind
-      VT::Parser.new.parse("a\nb") { |token| collected << token.kind }
+      TTY::VT::Parser.new.parse("a\nb") { |token| collected << token.kind }
       collected.should eq([
         TTY::Token::Kind::Text,
         TTY::Token::Kind::C0,

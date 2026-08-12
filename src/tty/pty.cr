@@ -221,7 +221,7 @@ struct TTY::PTY
     when :pty_read
       MVU::Sub.new(id) do |dispatch, cancel|
         buffer = Bytes.new(4096)
-        parser = VT::Parser.new
+        parser = TTY::VT::Parser.new
         until cancel.closed?
           begin
             bytes_read = @master.read(buffer)

@@ -1,7 +1,7 @@
 # src/tty/parser.cr
 require "./token"
 
-module VT
+module TTY::VT
   alias Token = TTY::Token
 
   enum State : UInt8
