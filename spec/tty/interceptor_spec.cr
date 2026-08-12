@@ -237,4 +237,3 @@ describe TTY::Interceptor do
     close_cmd.tasks.each &.run.call
   end
 end
-

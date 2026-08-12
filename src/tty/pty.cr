@@ -1,7 +1,7 @@
 # src/tty/pty.cr
 require "./winsize"
 require "./messages"
-require "./parser"
+require "./vt"
 require "./interceptor"
 
 @[Link("c")]
@@ -290,4 +290,3 @@ struct TTY::PTY
     end
   end
 end
-

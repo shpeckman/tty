@@ -1,5 +1,5 @@
 # src/tty/interceptor.cr
-require "./token"
+require "./vt"
 require "../ext/mvu"
 
 module TTY
@@ -40,4 +40,3 @@ module TTY
     end
   end
 end
-

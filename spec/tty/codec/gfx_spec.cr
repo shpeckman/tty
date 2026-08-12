@@ -614,4 +614,3 @@ describe TTY::Codec::Gfx do
     end
   end
 end
-

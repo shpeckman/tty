@@ -1,6 +1,6 @@
 # src/tty/messages.cr
 require "./winsize"
-require "./token"
+require "./vt"
 
 module TTY
   struct Write
@@ -43,4 +43,3 @@ module TTY
     end
   end
 end
-

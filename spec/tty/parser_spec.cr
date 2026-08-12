@@ -292,4 +292,3 @@ describe TTY::VT::Parser do
     end
   end
 end
-
