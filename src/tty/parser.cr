@@ -1,3 +1,4 @@
+# src/tty/parser.cr
 require "./token"
 
 module VT
@@ -23,24 +24,24 @@ module VT
   end
 
   enum Action : UInt8
-    None     =  0
-    APC      =  1
-    App      =  2
-    C1SS2    =  3
-    C1SS3    =  4
-    CSI      =  5
-    DCS      =  6
-    ESC      =  7
-    ESCSS2   =  8
-    ESCSS3   =  9
-    Exec     = 10
-    Ignore   = 11
-    OSC      = 12
-    PM       = 13
-    Print    = 14
-    Seq      = 15
-    SOS      = 16
-    Error    = 17
+    None   =  0
+    APC    =  1
+    App    =  2
+    C1SS2  =  3
+    C1SS3  =  4
+    CSI    =  5
+    DCS    =  6
+    ESC    =  7
+    ESCSS2 =  8
+    ESCSS3 =  9
+    Exec   = 10
+    Ignore = 11
+    OSC    = 12
+    PM     = 13
+    Print  = 14
+    Seq    = 15
+    SOS    = 16
+    Error  = 17
   end
 
   private alias A = Action
@@ -51,10 +52,10 @@ module VT
   STATE_COUNT = State.values.size
 
   C0_EXEC = [
-    {(0..31),  A::Exec,  nil},
-    {(24..24), A::Exec,  S::Gnd},
-    {(26..26), A::Exec,  S::Gnd},
-    {(27..27), A::Seq,   S::ESC},
+    {(0..31),  A::Exec, nil},
+    {(24..24), A::Exec, S::Gnd},
+    {(26..26), A::Exec, S::Gnd},
+    {(27..27), A::Seq,  S::ESC},
   ] of Rule
 
   C0_IGNORE = [
@@ -65,10 +66,10 @@ module VT
   ] of Rule
 
   C0_APP = [
-    {(0..31),  A::App,   nil},
-    {(24..24), A::Exec,  S::Gnd},
-    {(26..26), A::Exec,  S::Gnd},
-    {(27..27), A::Seq,   S::ESC},
+    {(0..31),  A::App,  nil},
+    {(24..24), A::Exec, S::Gnd},
+    {(26..26), A::Exec, S::Gnd},
+    {(27..27), A::Seq,  S::ESC},
   ] of Rule
 
   ANYWHERE = [
