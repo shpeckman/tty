@@ -1,4 +1,4 @@
-# src/tty/vt.cr
+# src/ext/vt.cr
 
 # Usage
 # -----
@@ -57,6 +57,4 @@
 # or contain invalid UTF-8 codepoints will still be emitted, but with their
 # `malformed?` flag set to true.
 
-require "./vt/token"
-require "./vt/tables"
-require "./vt/parser"
+require "vt"

@@ -1,7 +1,4 @@
 # src/tty/interceptor.cr
-require "./vt"
-require "../ext/mvu"
-
 module TTY
   # An Interceptor allows hooking into the raw data streams and parsed token
   # streams of a PTY. This is primarily useful for implementing custom ANSI

@@ -1,6 +1,5 @@
 # src/tty/messages.cr
 require "./winsize"
-require "./vt"
 
 module TTY
   struct Write

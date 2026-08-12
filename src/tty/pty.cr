@@ -1,7 +1,6 @@
 # src/tty/pty.cr
 require "./winsize"
 require "./messages"
-require "./vt"
 require "./interceptor"
 
 @[Link("c")]

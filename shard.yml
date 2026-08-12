@@ -8,7 +8,7 @@ authors:
 crystal: '>= 1.21.0'
 
 dependencies:
-  unicode_grapheme:
-    github: shpeckman/unicode_grapheme
-    
+  vt:
+    github: shpeckman/vt
+
 license: MIT

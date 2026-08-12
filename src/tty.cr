@@ -1,8 +1,8 @@
 # src/tty.cr
+require "./ext/vt"
 require "./ext/mvu"
 require "./tty/winsize"
 require "./tty/modes"
-require "./tty/vt"
 require "./tty/messages"
 require "./tty/interceptor"
 require "./tty/pty"
