@@ -1,5 +1,5 @@
 # src/tty/vt/tables.cr
-module TTY::VT
+module VT
   enum State : UInt8
     APC       =  1
     CSIEntry  =  2

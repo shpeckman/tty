@@ -35,7 +35,7 @@ module TTY
     # Invoked with each parsed token from the PTY.
     # Return the `token` to allow it to pass through to the application,
     # return a modified `Token`, or return `nil` to swallow it completely.
-    def intercept(token : TTY::VT::Token) : TTY::VT::Token?
+    def intercept(token : VT::Token) : VT::Token?
       token
     end
   end

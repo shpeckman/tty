@@ -1,5 +1,5 @@
 # src/tty/vt/token.cr
-struct TTY::VT::Token
+struct VT::Token
   enum Kind : UInt8
     Text = 1
     C0; ESC; SS2; SS3; CSI
@@ -63,7 +63,7 @@ struct TTY::VT::Token
   end
 
   def inspect(io : IO) : Nil
-    io << "TTY::VT::Token(" << @kind
+    io << "VT::Token(" << @kind
     io << ", malformed" if @malformed
     io << ", "
     @bytes.each_with_index do |byte, index|

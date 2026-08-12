@@ -4,7 +4,7 @@ require "../spec_helper"
 class TestInterceptor < TTY::Interceptor
   getter read_data          = IO::Memory.new
   getter write_data         = IO::Memory.new
-  getter intercepted_tokens = [] of TTY::VT::Token
+  getter intercepted_tokens = [] of VT::Token
 
   property swallow = false
   property replace_text : String? = nil
@@ -25,7 +25,7 @@ class TestInterceptor < TTY::Interceptor
     @write_data.write(data)
   end
 
-  def intercept(token : TTY::VT::Token) : TTY::VT::Token?
+  def intercept(token : VT::Token) : VT::Token?
     @intercepted_tokens << token
     str = String.new(token.bytes)
 
@@ -44,7 +44,7 @@ class TestInterceptor < TTY::Interceptor
     return nil if @swallow
 
     if (rep = @replace_text) && token.text?
-      return TTY::VT::Token.new(TTY::VT::Token::Kind::Text, rep.to_slice, false)
+      return VT::Token.new(VT::Token::Kind::Text, rep.to_slice, false)
     end
 
     token

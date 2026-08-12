@@ -239,7 +239,7 @@ struct TTY::PTY
     when :pty_read
       MVU::Sub.new(id) do |dispatch, cancel|
         buffer = Bytes.new(4096)
-        parser = TTY::VT::Parser.new
+        parser = VT::Parser.new
 
         @interceptors.each &.bind_dispatch(dispatch)
 
@@ -255,9 +255,9 @@ struct TTY::PTY
               if @interceptors.empty?
                 dispatch.call(TokensDecoded.new(tokens)) unless tokens.empty?
               else
-                passthrough = [] of TTY::VT::Token
+                passthrough = [] of VT::Token
                 tokens.each do |token|
-                  current : TTY::VT::Token? = token
+                  current : VT::Token? = token
                   @interceptors.each do |interceptor|
                     break unless current
                     current = interceptor.intercept(current)

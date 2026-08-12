@@ -3,11 +3,11 @@ require "../../spec_helper"
 
 private alias Gfx = TTY::Codec::Gfx
 
-private def apc(sequence : Bytes) : TTY::VT::Token
-  TTY::VT::Parser.new.parse(sequence).find { |token| token.kind.apc? }.not_nil!
+private def apc(sequence : Bytes) : VT::Token
+  VT::Parser.new.parse(sequence).find { |token| token.kind.apc? }.not_nil!
 end
 
-private def apc(sequence : String) : TTY::VT::Token
+private def apc(sequence : String) : VT::Token
   apc(sequence.to_slice)
 end
 
@@ -20,7 +20,7 @@ private def c1_apc(body : String) : String
   String.new(io.to_slice)
 end
 
-private def extract_payload(token : TTY::VT::Token) : Bytes
+private def extract_payload(token : VT::Token) : Bytes
   bytes = token.bytes
   offset = if bytes.size >= 2 && bytes.unsafe_fetch(0) == 0x1b_u8 && bytes.unsafe_fetch(1) == 0x5f_u8
              2
@@ -59,7 +59,7 @@ end
 describe TTY::Codec::Gfx do
   describe "capacity" do
     it "fits a full chunk within the default parser buffer" do
-      Gfx::MIN_CAPACITY.should be <= TTY::VT::Parser::DEFAULT_CAPACITY
+      Gfx::MIN_CAPACITY.should be <= VT::Parser::DEFAULT_CAPACITY
     end
 
     it "decodes a full sized chunk without truncation" do

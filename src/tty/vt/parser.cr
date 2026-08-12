@@ -1,5 +1,5 @@
 # src/tty/vt/parser.cr
-class TTY::VT::Parser
+class VT::Parser
   DEFAULT_CAPACITY = 8192
 
   getter state    : State
