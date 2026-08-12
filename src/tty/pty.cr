@@ -1,7 +1,7 @@
 # src/tty/pty.cr
 require "./winsize"
 require "./messages"
-require "./tokenizer"
+require "./parser"
 
 @[Link("c")]
 lib LibC
@@ -220,13 +220,13 @@ struct TTY::PTY
     case id
     when :pty_read
       MVU::Sub.new(id) do |dispatch, cancel|
-        buffer    = Bytes.new(4096)
-        tokenizer = Tokenizer.new
+        buffer = Bytes.new(4096)
+        parser = VT::Parser.new
         until cancel.closed?
           begin
             bytes_read = @master.read(buffer)
             if bytes_read > 0
-              tokens = tokenizer.feed(buffer[0, bytes_read])
+              tokens = parser.parse(buffer[0, bytes_read])
               dispatch.call(TokensDecoded.new(tokens)) unless tokens.empty?
             else
               dispatch.call(EOF.new)

@@ -3,7 +3,7 @@ require "./ext/mvu"
 require "./tty/winsize"
 require "./tty/raw_mode"
 require "./tty/token"
-require "./tty/tokenizer"
+require "./tty/parser"
 require "./tty/messages"
 require "./tty/pty"
 
