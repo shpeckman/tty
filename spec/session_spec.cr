@@ -10,7 +10,7 @@ describe TTY::Session do
 
   it "PTY.spawn gives the child a controlling terminal" do
     process = TTY::PTY.spawn("tty")
-    output  = read_until_eio(process.pty)
+    output = read_until_eio(process.pty)
     output.should contain process.pty.slave_name
     process.wait.success?.should be_true
     process.pty.close

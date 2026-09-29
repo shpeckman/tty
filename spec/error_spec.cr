@@ -4,7 +4,7 @@ require "./spec_helper"
 describe TTY::Syscall::Error do
   it "carries operation and fd context" do
     buffer = Bytes.new(1)
-    error  = expect_raises(TTY::Syscall::Error, /read fd=-1 failed: EBADF/) { TTY::Syscall.read(-1, buffer.to_unsafe, buffer.size) }
+    error = expect_raises(TTY::Syscall::Error, /read fd=-1 failed: EBADF/) { TTY::Syscall.read(-1, buffer.to_unsafe, buffer.size) }
     error.errno.should eq TTY::Syscall::EBADF
     error.operation.should eq "read"
     error.fd.should eq -1

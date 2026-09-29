@@ -3,7 +3,7 @@ require "./spec_helper"
 
 describe "TTY readiness" do
   it "waits for readable data" do
-    pty     = TTY::PTY.open
+    pty = TTY::PTY.open
     termios = pty.termios
     termios.make_raw
     pty.termios = termios

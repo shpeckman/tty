@@ -3,6 +3,7 @@
 /docs/
 /lib/
 /bin/
+/.build/
 /.shards/
 /shard.lock/
 *.dwarf

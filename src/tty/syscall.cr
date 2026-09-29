@@ -40,22 +40,22 @@ module TTY
         end
       end
     {% else %}
-      NR_READ           =   0_u64
-      NR_WRITE          =   1_u64
-      NR_CLOSE          =   3_u64
-      NR_WAIT4          =  61_u64
-      NR_FORK           =  57_u64
-      NR_DUP2           =  33_u64
-      NR_IOCTL          =  16_u64
-      NR_SETSID         = 112_u64
-      NR_EXECVE         =  59_u64
-      NR_EXIT_GROUP     = 231_u64
-      NR_OPENAT         = 257_u64
-      NR_KILL           =  62_u64
-      NR_POLL           =   7_u64
-      NR_SOCKETPAIR     =  53_u64
-      NR_RT_SIGACTION   =  13_u64
-      NR_RT_SIGPROCMASK =  14_u64
+      NR_READ          =   0_u64
+      NR_WRITE         =   1_u64
+      NR_CLOSE         =   3_u64
+      NR_WAIT4         =  61_u64
+      NR_FORK          =  57_u64
+      NR_DUP2          =  33_u64
+      NR_IOCTL         =  16_u64
+      NR_SETSID        = 112_u64
+      NR_EXECVE        =  59_u64
+      NR_EXIT_GROUP    = 231_u64
+      NR_OPENAT        = 257_u64
+      NR_KILL          =  62_u64
+      NR_POLL          =   7_u64
+      NR_SOCKETPAIR    =  53_u64
+      NR_RT_SIGACTION  =  13_u64
+      NR_RT_SIGPROCMASK = 14_u64
 
       AT_FDCWD = -100_i64
 
@@ -75,6 +75,7 @@ module TTY
     WNOHANG = 1_i32
 
     EINTR  =  4_i32
+    EIO    =  5_i32
     EBADF  =  9_i32
     ECHILD = 10_i32
     EAGAIN = 11_i32
@@ -87,11 +88,11 @@ module TTY
     SIGSTOP = 19_i32
 
     class Error < TTY::Error
-      getter errno     : Int32
+      getter errno : Int32
       getter operation : String
-      getter fd        : Int32?
-      getter path      : String?
-      getter request   : UInt64?
+      getter fd : Int32?
+      getter path : String?
+      getter request : UInt64?
 
       def initialize(@errno : Int32, @operation : String = "syscall", @fd : Int32? = nil, @path : String? = nil, @request : UInt64? = nil)
         message = String.build do |io|
