@@ -68,4 +68,17 @@ describe TTY::PTY do
     String.new(buffer[0, n]).should eq "ac\n"
     pty.close
   end
+
+  {% unless flag?(:darwin) %}
+    it "opens an additional slave peer directly and reports lock state" do
+      pty = TTY::PTY.open
+      flags = (TTY::Syscall::O_RDWR | TTY::Syscall::O_NOCTTY | TTY::Syscall::O_CLOEXEC).to_i32
+      peer = TTY::Syscall.ioctl_result(pty.master_fd, TTY::TIOCGPTPEER, flags)
+      peer.should be >= 0
+      TTY::FD.character_device?(peer).should be_true
+      pty.locked?.should be_false
+      TTY::Syscall.close(peer)
+      pty.close
+    end
+  {% end %}
 end

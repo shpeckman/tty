@@ -1,7 +1,7 @@
 # examples/control.cr
 require "../src/tty"
 
-pty = TTY::PTY.open
+pty     = TTY::PTY.open
 termios = pty.termios
 termios.make_raw
 pty.termios = termios

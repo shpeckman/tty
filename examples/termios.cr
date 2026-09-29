@@ -1,9 +1,9 @@
 # examples/termios.cr
 require "../src/tty"
 
-pty = TTY::PTY.open
+pty      = TTY::PTY.open
 original = pty.termios
-raw = original
+raw      = original
 raw.make_raw
 pty.termios = raw
 puts pty.termios.input.value

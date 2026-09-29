@@ -23,10 +23,12 @@ describe "TTY control operations" do
   it "locks a pty exclusively and unlocks it" do
     pty = TTY::PTY.open
     TTY::Session.exclusive(pty.slave_fd)
+    TTY::Session.exclusive?(pty.slave_fd).should be_true
     expect_raises(TTY::Syscall::Error, /EBUSY/) do
       TTY::Syscall.openat(pty.slave_name, TTY::Syscall::O_RDWR | TTY::Syscall::O_NOCTTY)
     end
     TTY::Session.exclusive(pty.slave_fd, enable: false)
+    TTY::Session.exclusive?(pty.slave_fd).should be_false
     fd = TTY::Syscall.openat(pty.slave_name, TTY::Syscall::O_RDWR | TTY::Syscall::O_NOCTTY)
     TTY::Syscall.close(fd)
     pty.close
@@ -58,6 +60,22 @@ describe "TTY control operations" do
   it "rejects modem status on a pty, which has no UART" do
     pty = TTY::PTY.open
     expect_raises(TTY::Syscall::Error, /ENOTTY/) { TTY.modem_status(pty.master_fd) }
+    pty.close
+  end
+
+  it "supports drain and software flow-control ioctls" do
+    pty = TTY::PTY.open
+    TTY.drain(pty.slave_fd)
+    TTY.flow_control(pty.slave_fd, TTY::FlowAction::SuspendOutput)
+    TTY.flow_control(pty.slave_fd, TTY::FlowAction::ResumeOutput)
+    pty.close
+  end
+
+  it "rejects serial UART queries on a pty" do
+    pty = TTY::PTY.open
+    expect_raises(TTY::Syscall::Error) { TTY.serial_icount(pty.master_fd) }
+    expect_raises(TTY::Syscall::Error) { TTY.output_empty?(pty.master_fd) }
+    expect_raises(TTY::Syscall::Error) { TTY.set_modem_lines(pty.master_fd, TTY::ModemLine::DTR) }
     pty.close
   end
 end

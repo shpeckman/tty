@@ -10,7 +10,7 @@ describe TTY::Session do
 
   it "PTY.spawn gives the child a controlling terminal" do
     process = TTY::PTY.spawn("tty")
-    output = read_until_eio(process.pty)
+    output  = read_until_eio(process.pty)
     output.should contain process.pty.slave_name
     process.wait.success?.should be_true
     process.pty.close
@@ -39,5 +39,21 @@ describe TTY::Session do
     read_until_eio(process.pty).should contain "RESIZED"
     process.wait
     process.pty.close
+  end
+
+  it "reads and restores the line discipline" do
+    pty        = TTY::PTY.open
+    discipline = TTY::Session.line_discipline(pty.slave_fd)
+    TTY::Session.set_line_discipline(pty.slave_fd, discipline)
+    TTY::Session.line_discipline(pty.slave_fd).should eq(discipline)
+    pty.close
+  end
+
+  it "reports the session id for a spawned controlling terminal" do
+    process = TTY::PTY.spawn("sleep", ["30"], env: {"PATH" => "/usr/bin:/bin"})
+    TTY::Session.id(process.pty.master_fd).should eq(process.pid)
+    process.terminate
+    process.wait
+    process.close
   end
 end

@@ -2,7 +2,9 @@
 require "./tty/error"
 require "./tty/platform"
 require "./tty/syscall"
+require "./tty/fd"
 require "./tty/readiness"
+require "./tty/poller"
 require "./tty/termios"
 require "./tty/termios2"
 require "./tty/winsize"
@@ -25,6 +27,22 @@ module TTY
 
   def self.winsize(io : IO::FileDescriptor) : Winsize
     Winsize.get(io.fd)
+  end
+
+  def self.nonblocking?(fd : Int32) : Bool
+    FD.nonblocking?(fd)
+  end
+
+  def self.set_nonblocking(fd : Int32, enabled : Bool = true) : Nil
+    FD.set_nonblocking(fd, enabled)
+  end
+
+  def self.cloexec?(fd : Int32) : Bool
+    FD.cloexec?(fd)
+  end
+
+  def self.set_cloexec(fd : Int32, enabled : Bool = true) : Nil
+    FD.set_cloexec(fd, enabled)
   end
 
   def self.raw(fd : Int32, action : SetAction = SetAction::Now, & : -> U) : U forall U

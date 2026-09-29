@@ -3,7 +3,7 @@ require "./spec_helper"
 
 describe "TTY readiness" do
   it "waits for readable data" do
-    pty = TTY::PTY.open
+    pty     = TTY::PTY.open
     termios = pty.termios
     termios.make_raw
     pty.termios = termios
@@ -29,5 +29,24 @@ describe "TTY readiness" do
 
   it "validates timeouts" do
     expect_raises(ArgumentError, /-1 or greater/) { TTY.wait_readable(0, -2) }
+  end
+
+  it "polls multiple fds and returns per-fd events" do
+    first  = TTY::PTY.open
+    second = TTY::PTY.open
+    watches = [
+      TTY::PollFd.watch(first.master_fd, TTY::IOEvent::Readable),
+      TTY::PollFd.watch(second.master_fd, TTY::IOEvent::Readable),
+    ]
+
+    TTY.poll(watches, 0).should eq(0)
+    second.write_slave("x")
+    TTY.poll(watches, 1000).should eq(1)
+    watches[0].readable?.should be_false
+    watches[1].readable?.should be_true
+    watches[1].fd.should eq(second.master_fd)
+
+    first.close
+    second.close
   end
 end
