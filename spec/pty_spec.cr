@@ -61,7 +61,7 @@ describe TTY::PTY do
     pty = TTY::PTY.open
     pty.write_master("ab\u007Fc\n")
     buffer = Bytes.new(16)
-    n      = 0
+    n = 0
     until n >= 3 && buffer[n - 1] == '\n'.ord.to_u8
       n += pty.read_slave(buffer[n..])
     end

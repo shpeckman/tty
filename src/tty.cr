@@ -1,7 +1,11 @@
 # src/tty.cr
+require "./tty/platform"
 require "./tty/syscall"
 require "./tty/termios"
+require "./tty/termios2"
 require "./tty/winsize"
+require "./tty/session"
+require "./tty/control"
 require "./tty/pty"
 
 module TTY
@@ -21,11 +25,11 @@ module TTY
     Winsize.get(io.fd)
   end
 
-  def self.raw(fd : Int32, & : -> U) : U forall U
+  def self.raw(fd : Int32, action : SetAction = SetAction::Now, & : -> U) : U forall U
     original = Termios.get(fd)
-    termios  = original
+    termios = original
     termios.make_raw
-    termios.set(fd)
+    termios.set(fd, action)
     begin
       yield
     ensure
@@ -33,15 +37,15 @@ module TTY
     end
   end
 
-  def self.raw(io : IO::FileDescriptor, & : -> U) : U forall U
-    raw(io.fd) { yield }
+  def self.raw(io : IO::FileDescriptor, action : SetAction = SetAction::Now, & : -> U) : U forall U
+    raw(io.fd, action) { yield }
   end
 
-  def self.cbreak(fd : Int32, & : -> U) : U forall U
+  def self.cbreak(fd : Int32, action : SetAction = SetAction::Now, & : -> U) : U forall U
     original = Termios.get(fd)
-    termios  = original
+    termios = original
     termios.make_cbreak
-    termios.set(fd)
+    termios.set(fd, action)
     begin
       yield
     ensure
@@ -49,7 +53,7 @@ module TTY
     end
   end
 
-  def self.cbreak(io : IO::FileDescriptor, & : -> U) : U forall U
-    cbreak(io.fd) { yield }
+  def self.cbreak(io : IO::FileDescriptor, action : SetAction = SetAction::Now, & : -> U) : U forall U
+    cbreak(io.fd, action) { yield }
   end
 end

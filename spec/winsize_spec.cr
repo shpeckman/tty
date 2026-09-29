@@ -10,4 +10,11 @@ describe TTY::Winsize do
     winsize.cols.should eq 131_u16
     pty.close
   end
+
+  it "PTY.spawn applies a winsize before exec" do
+    pid, pty = TTY::PTY.spawn("sh", ["-c", "stty size"], env: {"PATH" => "/usr/bin:/bin"}, winsize: TTY::Winsize.new(rows: 55_u16, cols: 99_u16))
+    read_until_eio(pty).should contain "55 99"
+    TTY::PTY.wait(pid)
+    pty.close
+  end
 end

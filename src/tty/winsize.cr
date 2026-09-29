@@ -1,11 +1,11 @@
 # src/tty/winsize.cr
-module TTY
-  TIOCGWINSZ = 0x5413_u64
-  TIOCSWINSZ = 0x5414_u64
+require "./platform"
+require "./syscall"
 
+module TTY
   struct Winsize
-    property rows   : UInt16
-    property cols   : UInt16
+    property rows : UInt16
+    property cols : UInt16
     property xpixel : UInt16
     property ypixel : UInt16
 
@@ -22,5 +22,9 @@ module TTY
       copy = self
       Syscall.ioctl(fd, TIOCSWINSZ, pointerof(copy))
     end
+  end
+
+  def self.on_resize(fd : Int32, & : Winsize ->) : Nil
+    Signal::WINCH.trap { yield Winsize.get(fd) }
   end
 end
