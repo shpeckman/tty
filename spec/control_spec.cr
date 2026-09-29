@@ -3,7 +3,7 @@ require "./spec_helper"
 
 describe "TTY control operations" do
   it "reports pending input bytes" do
-    pty = TTY::PTY.open
+    pty     = TTY::PTY.open
     termios = pty.termios
     termios.make_raw
     pty.termios = termios
@@ -36,7 +36,7 @@ describe "TTY control operations" do
     unless File.exists?("/proc/sys/dev/tty/legacy_tiocsti") && File.read("/proc/sys/dev/tty/legacy_tiocsti").strip == "1"
       next
     end
-    pty = TTY::PTY.open
+    pty     = TTY::PTY.open
     termios = pty.termios
     termios.make_raw
     pty.termios = termios

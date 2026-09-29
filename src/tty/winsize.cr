@@ -4,8 +4,8 @@ require "./syscall"
 
 module TTY
   struct Winsize
-    property rows : UInt16
-    property cols : UInt16
+    property rows   : UInt16
+    property cols   : UInt16
     property xpixel : UInt16
     property ypixel : UInt16
 

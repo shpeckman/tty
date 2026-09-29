@@ -3,15 +3,15 @@ require "./spec_helper"
 
 describe TTY::Termios do
   it "reads termios from a pty slave" do
-    pty = TTY::PTY.open
+    pty     = TTY::PTY.open
     termios = TTY::Termios.get(pty.slave_fd)
     termios.local.should_not eq TTY::LocalFlag::None
     pty.close
   end
 
   it "round-trips flag changes through the kernel" do
-    pty = TTY::PTY.open
-    termios = TTY::Termios.get(pty.slave_fd)
+    pty      = TTY::PTY.open
+    termios  = TTY::Termios.get(pty.slave_fd)
     original = termios.local
     termios.local = original & ~TTY::LocalFlag::Echo
     termios.set(pty.slave_fd)
@@ -33,7 +33,7 @@ describe TTY::Termios do
   end
 
   it "TTY.raw restores the original settings after the block" do
-    pty = TTY::PTY.open
+    pty    = TTY::PTY.open
     before = TTY::Termios.get(pty.slave_fd)
     TTY.raw(pty.slave_fd) do
       TTY::Termios.get(pty.slave_fd).local.should eq(before.local & ~(TTY::LocalFlag::Echo | TTY::LocalFlag::EchoNl | TTY::LocalFlag::ICanon | TTY::LocalFlag::ISig | TTY::LocalFlag::IExten))
@@ -43,7 +43,7 @@ describe TTY::Termios do
   end
 
   it "TTY.raw restores settings even when the block raises" do
-    pty = TTY::PTY.open
+    pty    = TTY::PTY.open
     before = TTY::Termios.get(pty.slave_fd)
     expect_raises(Exception) { TTY.raw(pty.slave_fd) { raise Exception.new("boom") } }
     TTY::Termios.get(pty.slave_fd).local.should eq before.local
@@ -63,7 +63,7 @@ describe TTY::Termios do
   end
 
   it "round-trips a baud rate through the kernel" do
-    pty = TTY::PTY.open
+    pty     = TTY::PTY.open
     termios = TTY::Termios.get(pty.slave_fd)
     termios.baud = TTY::Baud::B19200
     termios.set(pty.slave_fd)
@@ -84,15 +84,15 @@ describe TTY::Termios do
   end
 
   it "times out a raw-mode read after VTIME" do
-    pty = TTY::PTY.open
+    pty     = TTY::PTY.open
     termios = pty.termios
     termios.make_raw
     termios.read_timeout = 200.milliseconds
     pty.termios = termios
     TTY.flush(pty.slave_fd)
     started = Time.instant
-    buffer = Bytes.new(8)
-    n = pty.read_slave(buffer)
+    buffer  = Bytes.new(8)
+    n       = pty.read_slave(buffer)
     elapsed = Time.instant - started
     n.should eq 0
     elapsed.should be >= 150.milliseconds
@@ -100,9 +100,9 @@ describe TTY::Termios do
   end
 
   it "renders an stty-style summary" do
-    pty = TTY::PTY.open
+    pty     = TTY::PTY.open
     termios = TTY::Termios.get(pty.slave_fd)
-    text = termios.to_s
+    text    = termios.to_s
     text.should contain "intr = ^C"
     text.should contain "icanon"
     termios.local = termios.local & ~TTY::LocalFlag::Echo

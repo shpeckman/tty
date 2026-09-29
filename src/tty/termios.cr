@@ -50,47 +50,47 @@ module TTY
 
     @[Flags]
     enum OutputFlag : UInt32
-      OPost  =    0x1
-      ONlcr  =    0x2
-      OXtabs =    0x4
-      ONoeot =    0x8
-      OCrnl  =   0x10
-      ONocr  =   0x20
-      ONlret =   0x40
-      OFill  =   0x80
+      OPost  =  0x1
+      ONlcr  =  0x2
+      OXtabs =  0x4
+      ONoeot =  0x8
+      OCrnl  = 0x10
+      ONocr  = 0x20
+      ONlret = 0x40
+      OFill  = 0x80
     end
 
     @[Flags]
     enum ControlFlag : UInt32
-      CS5    =     0x0
-      CS6    =   0x100
-      CS7    =   0x200
-      CS8    =   0x300
-      CSize  =   0x300
-      CStopB =   0x400
-      CRead  =   0x800
-      ParEnb =  0x1000
-      ParOdd =  0x2000
-      HupCl  =  0x4000
-      CLocal =  0x8000
+      CS5    =    0x0
+      CS6    =  0x100
+      CS7    =  0x200
+      CS8    =  0x300
+      CSize  =  0x300
+      CStopB =  0x400
+      CRead  =  0x800
+      ParEnb = 0x1000
+      ParOdd = 0x2000
+      HupCl  = 0x4000
+      CLocal = 0x8000
     end
 
     @[Flags]
     enum LocalFlag : UInt32
-      EchoKe  =         0x1
-      EchoE   =         0x2
-      EchoK   =         0x4
-      Echo    =         0x8
-      EchoNl  =        0x10
-      EchoPrt =        0x20
-      EchoCtl =        0x40
-      ISig    =        0x80
-      ICanon  =       0x100
-      IExten  =       0x400
-      ToStop  =    0x400000
-      FlushO  =    0x800000
-      PendIn  =  0x20000000
-      NoFlsh  =  0x80000000_u32
+      EchoKe  =            0x1
+      EchoE   =            0x2
+      EchoK   =            0x4
+      Echo    =            0x8
+      EchoNl  =           0x10
+      EchoPrt =           0x20
+      EchoCtl =           0x40
+      ISig    =           0x80
+      ICanon  =          0x100
+      IExten  =          0x400
+      ToStop  =       0x400000
+      FlushO  =       0x800000
+      PendIn  =     0x20000000
+      NoFlsh  = 0x80000000_u32
     end
 
     enum ControlChar : UInt8
@@ -113,27 +113,27 @@ module TTY
     end
 
     enum Baud : UInt32
-      B0      =     0
-      B50     =    50
-      B75     =    75
-      B110    =   110
-      B134    =   134
-      B150    =   150
-      B200    =   200
-      B300    =   300
-      B600    =   600
-      B1200   =  1200
-      B1800   =  1800
-      B2400   =  2400
-      B4800   =  4800
-      B9600   =  9600
-      B19200  = 19200
-      B38400  = 38400
-      B7200   =  7200
-      B14400  = 14400
-      B28800  = 28800
-      B57600  = 57600
-      B76800  = 76800
+      B0      =      0
+      B50     =     50
+      B75     =     75
+      B110    =    110
+      B134    =    134
+      B150    =    150
+      B200    =    200
+      B300    =    300
+      B600    =    600
+      B1200   =   1200
+      B1800   =   1800
+      B2400   =   2400
+      B4800   =   4800
+      B9600   =   9600
+      B19200  =  19200
+      B38400  =  38400
+      B7200   =   7200
+      B14400  =  14400
+      B28800  =  28800
+      B57600  =  57600
+      B76800  =  76800
       B115200 = 115200
       B230400 = 230400
     end
@@ -212,23 +212,23 @@ module TTY
     end
 
     enum ControlChar : UInt8
-      Intr     =  0
-      Quit     =  1
-      Erase    =  2
-      Kill     =  3
-      Eof      =  4
-      Time     =  5
-      Min      =  6
-      Swtc     =  7
-      Start    =  8
-      Stop     =  9
-      Susp     = 10
-      Eol      = 11
-      Reprint  = 12
-      Discard  = 13
-      WErase   = 14
-      LNext    = 15
-      Eol2     = 16
+      Intr    =  0
+      Quit    =  1
+      Erase   =  2
+      Kill    =  3
+      Eof     =  4
+      Time    =  5
+      Min     =  6
+      Swtc    =  7
+      Start   =  8
+      Stop    =  9
+      Susp    = 10
+      Eol     = 11
+      Reprint = 12
+      Discard = 13
+      WErase  = 14
+      LNext   = 15
+      Eol2    = 16
     end
 
     enum Baud : UInt32
@@ -497,11 +497,11 @@ module TTY
       io << '\n'
       cs = control & ControlFlag::CSize
       io << (case cs
-             when ControlFlag::CS5 then "cs5 "
-             when ControlFlag::CS6 then "cs6 "
-             when ControlFlag::CS7 then "cs7 "
-             else                       "cs8 "
-             end)
+      when ControlFlag::CS5 then "cs5 "
+      when ControlFlag::CS6 then "cs6 "
+      when ControlFlag::CS7 then "cs7 "
+      else                       "cs8 "
+      end)
       io << flag_line(control)
       io << '\n'
       io << flag_line(local)

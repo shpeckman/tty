@@ -35,8 +35,8 @@ module TTY
   end
 
   class PTY
-    getter master_fd : Int32
-    getter slave_fd : Int32
+    getter master_fd  : Int32
+    getter slave_fd   : Int32
     getter slave_name : String
 
     def self.open : PTY
@@ -68,10 +68,10 @@ module TTY
       winsize.try &.set(pty.master_fd)
 
       argv_strings = [command] + args
-      argv_ptrs = argv_strings.map(&.to_unsafe)
+      argv_ptrs    = argv_strings.map(&.to_unsafe)
       argv_ptrs << Pointer(UInt8).null
       env_strings = env.map { |key, value| "#{key}=#{value}" }
-      env_ptrs = env_strings.map(&.to_unsafe)
+      env_ptrs    = env_strings.map(&.to_unsafe)
       env_ptrs << Pointer(UInt8).null
       candidates = if command.includes?('/')
                      [command]
