@@ -14,6 +14,3 @@ examples:
 		echo "==> $$example"; \
 		$(CRYSTAL) run $$example; \
 	done
-
-clean:
-	rm -rf .build
