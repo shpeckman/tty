@@ -23,7 +23,7 @@ module TTY
 
   def self.raw(fd : Int32, & : -> U) : U forall U
     original = Termios.get(fd)
-    termios = original
+    termios  = original
     termios.make_raw
     termios.set(fd)
     begin
@@ -39,7 +39,7 @@ module TTY
 
   def self.cbreak(fd : Int32, & : -> U) : U forall U
     original = Termios.get(fd)
-    termios = original
+    termios  = original
     termios.make_cbreak
     termios.set(fd)
     begin

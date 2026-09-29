@@ -3,15 +3,15 @@ require "./spec_helper"
 
 describe TTY::Termios do
   it "reads termios from a pty slave" do
-    pty = TTY::PTY.open
+    pty     = TTY::PTY.open
     termios = TTY::Termios.get(pty.slave_fd)
     termios.local.should_not eq TTY::LocalFlag::None
     pty.close
   end
 
   it "round-trips flag changes through the kernel" do
-    pty = TTY::PTY.open
-    termios = TTY::Termios.get(pty.slave_fd)
+    pty      = TTY::PTY.open
+    termios  = TTY::Termios.get(pty.slave_fd)
     original = termios.local
     termios.local = original & ~TTY::LocalFlag::Echo
     termios.set(pty.slave_fd)
@@ -33,7 +33,7 @@ describe TTY::Termios do
   end
 
   it "TTY.raw restores the original settings after the block" do
-    pty = TTY::PTY.open
+    pty    = TTY::PTY.open
     before = TTY::Termios.get(pty.slave_fd)
     TTY.raw(pty.slave_fd) do
       TTY::Termios.get(pty.slave_fd).local.should eq(before.local & ~(TTY::LocalFlag::Echo | TTY::LocalFlag::EchoNl | TTY::LocalFlag::ICanon | TTY::LocalFlag::ISig | TTY::LocalFlag::IExten))
@@ -43,7 +43,7 @@ describe TTY::Termios do
   end
 
   it "TTY.raw restores settings even when the block raises" do
-    pty = TTY::PTY.open
+    pty    = TTY::PTY.open
     before = TTY::Termios.get(pty.slave_fd)
     expect_raises(Exception) { TTY.raw(pty.slave_fd) { raise Exception.new("boom") } }
     TTY::Termios.get(pty.slave_fd).local.should eq before.local

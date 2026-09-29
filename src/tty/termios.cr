@@ -91,23 +91,23 @@ module TTY
   end
 
   enum ControlChar : UInt8
-    Intr     =  0
-    Quit     =  1
-    Erase    =  2
-    Kill     =  3
-    Eof      =  4
-    Time     =  5
-    Min      =  6
-    Swtc     =  7
-    Start    =  8
-    Stop     =  9
-    Susp     = 10
-    Eol      = 11
-    Reprint  = 12
-    Discard  = 13
-    WErase   = 14
-    LNext    = 15
-    Eol2     = 16
+    Intr    =  0
+    Quit    =  1
+    Erase   =  2
+    Kill    =  3
+    Eof     =  4
+    Time    =  5
+    Min     =  6
+    Swtc    =  7
+    Start   =  8
+    Stop    =  9
+    Susp    = 10
+    Eol     = 11
+    Reprint = 12
+    Discard = 13
+    WErase  = 14
+    LNext   = 15
+    Eol2    = 16
   end
 
   struct Termios
@@ -115,16 +115,16 @@ module TTY
     @oflag : UInt32
     @cflag : UInt32
     @lflag : UInt32
-    @line : UInt8
-    @cc : StaticArray(UInt8, NCCS)
+    @line  : UInt8
+    @cc    : StaticArray(UInt8, NCCS)
 
     def initialize
       @iflag = 0_u32
       @oflag = 0_u32
       @cflag = 0_u32
       @lflag = 0_u32
-      @line = 0_u8
-      @cc = StaticArray(UInt8, NCCS).new(0_u8)
+      @line  = 0_u8
+      @cc    = StaticArray(UInt8, NCCS).new(0_u8)
     end
 
     def self.get(fd : Int32) : Termios

@@ -4,8 +4,8 @@ module TTY
   TIOCGPTN   = 0x80045430_u64
 
   class PTY
-    getter master_fd : Int32
-    getter slave_fd : Int32
+    getter master_fd  : Int32
+    getter slave_fd   : Int32
     getter slave_name : String
 
     def self.open : PTY
@@ -15,7 +15,7 @@ module TTY
         Syscall.ioctl(master, TIOCSPTLCK, pointerof(unlock))
         number = 0_u32
         Syscall.ioctl(master, TIOCGPTN, pointerof(number))
-        name = "/dev/pts/#{number}"
+        name  = "/dev/pts/#{number}"
         slave = Syscall.openat(name, Syscall::O_RDWR | Syscall::O_NOCTTY | Syscall::O_CLOEXEC)
       rescue ex
         Syscall.close(master)
