@@ -1,6 +1,8 @@
 # src/tty.cr
+require "./tty/error"
 require "./tty/platform"
 require "./tty/syscall"
+require "./tty/readiness"
 require "./tty/termios"
 require "./tty/termios2"
 require "./tty/winsize"

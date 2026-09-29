@@ -12,9 +12,9 @@ describe TTY::Winsize do
   end
 
   it "PTY.spawn applies a winsize before exec" do
-    pid, pty = TTY::PTY.spawn("sh", ["-c", "stty size"], env: {"PATH" => "/usr/bin:/bin"}, winsize: TTY::Winsize.new(rows: 55_u16, cols: 99_u16))
-    read_until_eio(pty).should contain "55 99"
-    TTY::PTY.wait(pid)
-    pty.close
+    process = TTY::PTY.spawn("sh", ["-c", "stty size"], env: {"PATH" => "/usr/bin:/bin"}, winsize: TTY::Winsize.new(rows: 55_u16, cols: 99_u16))
+    read_until_eio(process.pty).should contain "55 99"
+    process.wait
+    process.pty.close
   end
 end

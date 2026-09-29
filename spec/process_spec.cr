@@ -1,0 +1,54 @@
+# spec/process_spec.cr
+require "./spec_helper"
+
+describe TTY::PTY::Process do
+  it "waits and caches status" do
+    process = TTY::PTY.spawn("sh", ["-c", "exit 7"], env: {"PATH" => "/usr/bin:/bin"})
+    read_until_eio(process.pty)
+    process.exited?.should be_false
+    status = process.wait
+    status.exited?.should be_true
+    status.exit_status.should eq 7
+    process.wait.exit_status.should eq 7
+    process.exited?.should be_true
+    process.status.not_nil!.exit_status.should eq 7
+    process.close
+  end
+
+  it "supports wait timeouts" do
+    process = TTY::PTY.spawn("sleep", ["0.3"], env: {"PATH" => "/usr/bin:/bin"})
+    process.wait(10.milliseconds).should be_nil
+    status = process.wait(2.seconds)
+    status.should_not be_nil
+    status.not_nil!.success?.should be_true
+    process.close
+  end
+
+  it "terminates a running child" do
+    process = TTY::PTY.spawn("sleep", ["30"], env: {"PATH" => "/usr/bin:/bin"})
+    process.terminate
+    status = process.wait(2.seconds)
+    status.should_not be_nil
+    status.not_nil!.signaled?.should be_true
+    status.not_nil!.term_signal.should eq Signal::TERM.value
+    process.close
+  end
+
+  it "kills a running child" do
+    process = TTY::PTY.spawn("sleep", ["30"], env: {"PATH" => "/usr/bin:/bin"})
+    process.kill
+    status = process.wait(2.seconds)
+    status.should_not be_nil
+    status.not_nil!.signaled?.should be_true
+    status.not_nil!.term_signal.should eq Signal::KILL.value
+    process.close
+  end
+
+  it "closes the pty idempotently" do
+    process = TTY::PTY.spawn("true", env: {"PATH" => "/usr/bin:/bin"})
+    process.wait.success?.should be_true
+    process.pty.close
+    process.pty.close
+    process.pty.closed?.should be_true
+  end
+end
