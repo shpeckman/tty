@@ -315,7 +315,7 @@ module TTY
       check(raw(NR_FCNTL, fd.to_i64, command.to_i64, argument), operation: "fcntl", fd: fd).to_i32
     end
 
-    def self.fstat(fd : Int32) : Stat
+    def self.fstat(fd : Int32)
       {% if flag?(:darwin) %}
         raise TTY::Error.new("fstat is not implemented by the Darwin syscall backend")
       {% else %}
@@ -424,7 +424,7 @@ module TTY
       {result, status}
     end
 
-    def self.waitid(id_type : Int32, id : Int32, options : Int32) : Siginfo
+    def self.waitid(id_type : Int32, id : Int32, options : Int32)
       {% if flag?(:darwin) %}
         raise TTY::Error.new("waitid is not implemented by the Darwin syscall backend")
       {% else %}
