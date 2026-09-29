@@ -2,8 +2,6 @@
 
 `tty` is a Crystal shard for Unix terminals and pseudo-terminals. It provides termios control, window size handling, terminal/session ioctls, readiness waits, PTY allocation, packet mode, process lifecycle management, pidfds, and event polling on top of a raw-syscall core.
 
-The syscall trampoline uses Crystal inline assembly. The shard has no C bindings, no external assembly object, no postinstall step, and no separate C compiler requirement.
-
 ## Features
 
 - Inline Crystal syscall trampoline with zero-through-six-argument calls
@@ -36,12 +34,12 @@ The shard itself does not require a C compiler or a postinstall build.
 
 ## Installation
 
-Use a local path dependency while developing:
+Add the dependency to your `shard.yml`:
 
 ```yaml
 dependencies:
   tty:
-    path: ../tty
+    github: shpeckman/tty
 ```
 
 Then run:
