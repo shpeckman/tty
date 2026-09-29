@@ -79,16 +79,15 @@ module TTY
                      ENV["PATH"].split(':').map { |dir| "#{dir}/#{command}" } + [command]
                    end
 
+      ready_fds = uninitialized Int32[2]
       begin
-        ready_reader, ready_writer = IO.pipe(read_blocking: true, write_blocking: true)
-        ready_reader.close_on_finalize = false
-        ready_writer.close_on_finalize = false
+        Syscall.socketpair(Syscall::AF_UNIX, Syscall::SOCK_STREAM, 0_i32, ready_fds.to_unsafe)
       rescue ex
         pty.close
         raise ex
       end
-      ready_read  = ready_reader.fd
-      ready_write = ready_writer.fd
+      ready_read  = ready_fds[0]
+      ready_write = ready_fds[1]
 
       begin
         pid = Syscall.fork
@@ -100,7 +99,7 @@ module TTY
       end
 
       if pid == 0
-        reset_child_signal_state
+        Syscall.reset_child_signal_state
         Syscall.raw(Syscall::NR_CLOSE, ready_read.to_i64)
         Syscall.raw(Syscall::NR_WRITE, ready_write.to_i64, "R".to_unsafe.address.to_i64, 1_i64)
         Syscall.raw(Syscall::NR_CLOSE, ready_write.to_i64)
@@ -121,10 +120,14 @@ module TTY
         ready = 0_u8
         loop do
           begin
-            Syscall.read(ready_read, pointerof(ready), 1)
+            bytes = Syscall.read(ready_read, pointerof(ready), 1)
+            if bytes <= 0
+              _, raw_status = Syscall.wait4(pid)
+              raise Error.new("child exited before exec (status #{raw_status})")
+            end
             break
           rescue ex : Syscall::Error
-            raise ex unless ex.errno == 4
+            raise ex unless ex.errno == Syscall::EINTR
           end
         end
       ensure
@@ -139,7 +142,7 @@ module TTY
         pty.close_slave
       rescue ex
         begin
-          Syscall.kill(pid, Signal::KILL.value)
+          Syscall.kill(pid, Syscall::SIGKILL)
         rescue
           nil
         end
@@ -151,16 +154,6 @@ module TTY
         raise ex
       end
       Process.new(pid, pty)
-    end
-
-    private def self.reset_child_signal_state : Nil
-      Signal.each do |signal|
-        next if signal == Signal::KILL || signal == Signal::STOP
-        LibC.signal(signal.value, LibC::SIG_DFL)
-      end
-      mask = uninitialized LibC::SigsetT
-      LibC.sigemptyset(pointerof(mask))
-      LibC.pthread_sigmask(LibC::SIG_SETMASK, pointerof(mask), Pointer(LibC::SigsetT).null)
     end
 
     def self.wait(pid : Int32) : ChildStatus
@@ -210,12 +203,12 @@ module TTY
       Syscall.read(@slave_fd, buffer.to_unsafe, buffer.size)
     end
 
-    def wait_readable(timeout : Time::Span? = nil) : Bool
-      TTY.wait_readable(@master_fd, timeout)
+    def wait_readable(timeout_ms : Int32 = -1) : Bool
+      TTY.wait_readable(@master_fd, timeout_ms)
     end
 
-    def wait_writable(timeout : Time::Span? = nil) : Bool
-      TTY.wait_writable(@master_fd, timeout)
+    def wait_writable(timeout_ms : Int32 = -1) : Bool
+      TTY.wait_writable(@master_fd, timeout_ms)
     end
 
     def termios : Termios
@@ -264,19 +257,21 @@ module TTY
         end
       end
 
-      def wait(timeout : Time::Span) : ChildStatus?
-        raise ArgumentError.new("timeout must be non-negative") if timeout < 0.milliseconds
+      def wait(timeout_ms : Int32) : ChildStatus?
+        raise ArgumentError.new("timeout_ms must be non-negative") if timeout_ms < 0
         return @status if @status
 
-        deadline = Time.instant + timeout
+        remaining = timeout_ms
         loop do
           result, raw_status = Syscall.wait4(@pid, Syscall::WNOHANG)
           if result == @pid
             @status = ChildStatus.new(raw_status)
             return @status
           end
-          return nil if Time.instant >= deadline
-          nanosleep(10.milliseconds)
+          return nil if remaining <= 0
+          step = remaining < 10 ? remaining : 10
+          Syscall.sleep_ms(step)
+          remaining -= step
         end
       end
 
@@ -284,26 +279,21 @@ module TTY
         @status
       end
 
-      private def nanosleep(span : Time::Span) : Nil
-        request = LibC::Timespec.new(tv_sec: span.to_i, tv_nsec: span.nanoseconds)
-        LibC.nanosleep(pointerof(request), Pointer(LibC::Timespec).null)
-      end
-
       def exited? : Bool
         !@status.nil?
       end
 
-      def signal(signal : Signal) : Nil
+      def signal(signal : Int32) : Nil
         return if exited?
-        Syscall.kill(@pid, signal.value)
+        Syscall.kill(@pid, signal)
       end
 
       def terminate : Nil
-        signal(Signal::TERM)
+        signal(Syscall::SIGTERM)
       end
 
       def kill : Nil
-        signal(Signal::KILL)
+        signal(Syscall::SIGKILL)
       end
 
       def close : Nil

@@ -17,8 +17,8 @@ describe TTY::PTY::Process do
 
   it "supports wait timeouts" do
     process = TTY::PTY.spawn("sleep", ["0.3"], env: {"PATH" => "/usr/bin:/bin"})
-    process.wait(10.milliseconds).should be_nil
-    status = process.wait(2.seconds)
+    process.wait(10).should be_nil
+    status = process.wait(2000)
     status.should_not be_nil
     status.not_nil!.success?.should be_true
     process.close
@@ -27,20 +27,20 @@ describe TTY::PTY::Process do
   it "terminates a running child" do
     process = TTY::PTY.spawn("sleep", ["30"], env: {"PATH" => "/usr/bin:/bin"})
     process.terminate
-    status = process.wait(2.seconds)
+    status = process.wait(2000)
     status.should_not be_nil
     status.not_nil!.signaled?.should be_true
-    status.not_nil!.term_signal.should eq Signal::TERM.value
+    status.not_nil!.term_signal.should eq TTY::Syscall::SIGTERM
     process.close
   end
 
   it "kills a running child" do
     process = TTY::PTY.spawn("sleep", ["30"], env: {"PATH" => "/usr/bin:/bin"})
     process.kill
-    status = process.wait(2.seconds)
+    status = process.wait(2000)
     status.should_not be_nil
     status.not_nil!.signaled?.should be_true
-    status.not_nil!.term_signal.should eq Signal::KILL.value
+    status.not_nil!.term_signal.should eq TTY::Syscall::SIGKILL
     process.close
   end
 

@@ -10,46 +10,81 @@ end
 module TTY
   module Syscall
     {% if flag?(:darwin) %}
-      NR_READ       = 0x2000003_u64
-      NR_WRITE      = 0x2000004_u64
-      NR_CLOSE      = 0x2000006_u64
-      NR_WAIT4      = 0x2000007_u64
-      NR_FORK       = 0x2000002_u64
-      NR_DUP2       = 0x200005A_u64
-      NR_IOCTL      = 0x2000036_u64
-      NR_SETSID     = 0x2000093_u64
-      NR_EXECVE     = 0x200003B_u64
-      NR_EXIT_GROUP = 0x2000001_u64
-      NR_OPENAT     = 0x20001CF_u64
-      NR_KILL       = 0x2000025_u64
+      NR_READ        = 0x2000003_u64
+      NR_WRITE       = 0x2000004_u64
+      NR_CLOSE       = 0x2000006_u64
+      NR_WAIT4       = 0x2000007_u64
+      NR_FORK        = 0x2000002_u64
+      NR_DUP2        = 0x200005A_u64
+      NR_IOCTL       = 0x2000036_u64
+      NR_SETSID      = 0x2000093_u64
+      NR_EXECVE      = 0x200003B_u64
+      NR_EXIT_GROUP  = 0x2000001_u64
+      NR_OPENAT      = 0x20001CF_u64
+      NR_KILL        = 0x2000025_u64
+      NR_POLL        = 0x20000E6_u64
+      NR_SOCKETPAIR  = 0x2000087_u64
+      NR_SIGACTION   = 0x200002E_u64
+      NR_SIGPROCMASK = 0x2000030_u64
 
       AT_FDCWD = -2_i64
 
       O_RDWR    =       0x2_i64
       O_NOCTTY  =   0x20000_i64
       O_CLOEXEC = 0x1000000_i64
+
+      SIG_SETMASK = 3_i32
+
+      struct Sigaction
+        def initialize(@handler : UInt64, @mask : UInt32, @flags : Int32)
+        end
+      end
     {% else %}
-      NR_READ       =   0_u64
-      NR_WRITE      =   1_u64
-      NR_CLOSE      =   3_u64
-      NR_WAIT4      =  61_u64
-      NR_FORK       =  57_u64
-      NR_DUP2       =  33_u64
-      NR_IOCTL      =  16_u64
-      NR_SETSID     = 112_u64
-      NR_EXECVE     =  59_u64
-      NR_EXIT_GROUP = 231_u64
-      NR_OPENAT     = 257_u64
-      NR_KILL       =  62_u64
+      NR_READ           =   0_u64
+      NR_WRITE          =   1_u64
+      NR_CLOSE          =   3_u64
+      NR_WAIT4          =  61_u64
+      NR_FORK           =  57_u64
+      NR_DUP2           =  33_u64
+      NR_IOCTL          =  16_u64
+      NR_SETSID         = 112_u64
+      NR_EXECVE         =  59_u64
+      NR_EXIT_GROUP     = 231_u64
+      NR_OPENAT         = 257_u64
+      NR_KILL           =  62_u64
+      NR_POLL           =   7_u64
+      NR_SOCKETPAIR     =  53_u64
+      NR_RT_SIGACTION   =  13_u64
+      NR_RT_SIGPROCMASK =  14_u64
 
       AT_FDCWD = -100_i64
 
       O_RDWR    = 0o0000002_i64
       O_NOCTTY  = 0o0000400_i64
       O_CLOEXEC = 0o2000000_i64
+
+      SIG_SETMASK = 2_i32
+      SIGSET_SIZE = 8_u64
+
+      struct Sigaction
+        def initialize(@handler : UInt64, @flags : UInt64, @restorer : UInt64, @mask : UInt64)
+        end
+      end
     {% end %}
 
     WNOHANG = 1_i32
+
+    EINTR  =  4_i32
+    EBADF  =  9_i32
+    ECHILD = 10_i32
+    EAGAIN = 11_i32
+
+    AF_UNIX     = 1_i32
+    SOCK_STREAM = 1_i32
+
+    SIGKILL =  9_i32
+    SIGTERM = 15_i32
+    SIGSTOP = 19_i32
 
     class Error < TTY::Error
       getter errno     : Int32
@@ -165,6 +200,43 @@ module TTY
       status = 0_i32
       result = check(LibTTYSyscall.tty_syscall(NR_WAIT4, pid, pointerof(status), options.to_i64, Pointer(Void).null), operation: "wait4").to_i32
       {result, status}
+    end
+
+    def self.poll(fds : Pointer(Void), nfds : UInt64, timeout_ms : Int32) : Int32
+      check(LibTTYSyscall.tty_syscall(NR_POLL, fds, nfds, timeout_ms.to_i64), operation: "poll").to_i32
+    end
+
+    def self.sleep_ms(timeout_ms : Int32) : Nil
+      poll(Pointer(Void).null, 0_u64, timeout_ms)
+    rescue ex : Error
+      raise ex unless ex.errno == EINTR
+    end
+
+    def self.socketpair(domain : Int32, type : Int32, protocol : Int32, fds : Pointer(Int32)) : Nil
+      check(LibTTYSyscall.tty_syscall(NR_SOCKETPAIR, domain, type, protocol, fds), operation: "socketpair")
+    end
+
+    def self.reset_child_signal_state : Nil
+      {% if flag?(:darwin) %}
+        action = Sigaction.new(0_u64, 0_u32, 0_i32)
+      {% else %}
+        action = Sigaction.new(0_u64, 0_u64, 0_u64, 0_u64)
+      {% end %}
+      (1..31).each do |signal|
+        next if signal == SIGKILL || signal == SIGSTOP
+        {% if flag?(:darwin) %}
+          raw(NR_SIGACTION, signal.to_i64, pointerof(action).address.to_i64, 0_i64)
+        {% else %}
+          raw(NR_RT_SIGACTION, signal.to_i64, pointerof(action).address.to_i64, 0_i64, SIGSET_SIZE.to_i64)
+        {% end %}
+      end
+      {% if flag?(:darwin) %}
+        mask = 0_u32
+        raw(NR_SIGPROCMASK, SIG_SETMASK.to_i64, pointerof(mask).address.to_i64, 0_i64)
+      {% else %}
+        mask = 0_u64
+        raw(NR_RT_SIGPROCMASK, SIG_SETMASK.to_i64, pointerof(mask).address.to_i64, 0_i64, SIGSET_SIZE.to_i64)
+      {% end %}
     end
 
     def self.exit_group(code : Int32) : NoReturn
