@@ -148,162 +148,162 @@ end
 
 ### Top-level `TTY`
 
-| API | Description |
-| --- | --- |
-| `TTY.termios(fd : Int32) : Termios` | Read terminal attributes from an fd. |
-| `TTY.termios(io : IO::FileDescriptor) : Termios` | Read terminal attributes from an IO. |
-| `TTY.winsize(fd : Int32) : Winsize` | Read window size from an fd. |
-| `TTY.winsize(io : IO::FileDescriptor) : Winsize` | Read window size from an IO. |
-| `TTY.raw(fd, action = SetAction::Now) { ... }` | Enable raw mode for the block, then restore. |
-| `TTY.raw(io, action = SetAction::Now) { ... }` | IO overload of `raw`. |
+| API                                               | Description                                     |
+|---------------------------------------------------|-------------------------------------------------|
+| `TTY.termios(fd : Int32) : Termios`               | Read terminal attributes from an fd.            |
+| `TTY.termios(io : IO::FileDescriptor) : Termios`  | Read terminal attributes from an IO.            |
+| `TTY.winsize(fd : Int32) : Winsize`               | Read window size from an fd.                    |
+| `TTY.winsize(io : IO::FileDescriptor) : Winsize`  | Read window size from an IO.                    |
+| `TTY.raw(fd, action = SetAction::Now) { ... }`    | Enable raw mode for the block, then restore.    |
+| `TTY.raw(io, action = SetAction::Now) { ... }`    | IO overload of `raw`.                           |
 | `TTY.cbreak(fd, action = SetAction::Now) { ... }` | Enable cbreak mode for the block, then restore. |
-| `TTY.cbreak(io, action = SetAction::Now) { ... }` | IO overload of `cbreak`. |
-| `TTY.flush(fd, queue = FlushQueue::Both) : Nil` | Flush input/output queues. |
-| `TTY.on_resize(fd) { |winsize| ... } : Nil` | Trap `SIGWINCH` and yield the current size. |
+| `TTY.cbreak(io, action = SetAction::Now) { ... }` | IO overload of `cbreak`.                        |
+| `TTY.flush(fd, queue = FlushQueue::Both) : Nil`   | Flush input/output queues.                      |
+| `TTY.on_resize(fd) { |winsize| ... } : Nil`       | Trap `SIGWINCH` and yield the current size.     |
 
 ### Readiness
 
-| API | Description |
-| --- | --- |
-| `TTY.wait_readable(fd : Int32, timeout_ms : Int32 = -1) : Bool` | Wait until readable, HUP, or error. |
-| `TTY.wait_writable(fd : Int32, timeout_ms : Int32 = -1) : Bool` | Wait until writable, HUP, or error. |
-| `TTY.wait_io(fd : Int32, events : IOEvent, timeout_ms : Int32 = -1) : Bool` | Wait for an explicit event mask. |
-| `TTY::IOEvent` | `Readable`, `Writable`. |
-| `TTY::PollFd` | Low-level `pollfd` layout: `fd`, `events`, `revents`. |
+| API                                                                         | Description                                           |
+|-----------------------------------------------------------------------------|-------------------------------------------------------|
+| `TTY.wait_readable(fd : Int32, timeout_ms : Int32 = -1) : Bool`             | Wait until readable, HUP, or error.                   |
+| `TTY.wait_writable(fd : Int32, timeout_ms : Int32 = -1) : Bool`             | Wait until writable, HUP, or error.                   |
+| `TTY.wait_io(fd : Int32, events : IOEvent, timeout_ms : Int32 = -1) : Bool` | Wait for an explicit event mask.                      |
+| `TTY::IOEvent`                                                              | `Readable`, `Writable`.                               |
+| `TTY::PollFd`                                                               | Low-level `pollfd` layout: `fd`, `events`, `revents`. |
 
 `timeout_ms` is `-1` for infinite wait, `0` for a single poll, or a positive millisecond timeout.
 
 ### Termios types
 
-| Type/API | Description |
-| --- | --- |
-| `TTY::SetAction` | `Now`, `Drain`, `Flush`; maps to `TCSETS`, `TCSETSW`, `TCSETSF`. |
-| `TTY::FlushQueue` | `Input`, `Output`, `Both`. |
-| `TTY::InputFlag` | Platform termios input flags. |
-| `TTY::OutputFlag` | Platform termios output flags. |
-| `TTY::ControlFlag` | Platform termios control flags. |
-| `TTY::LocalFlag` | Platform termios local flags. |
-| `TTY::ControlChar` | Platform control-character indexes such as `Min`, `Time`, `Intr`, `Quit`, `Start`, `Stop`. |
-| `TTY::Baud` | Standard baud enum; Linux also has `BOther` for custom speeds. |
-| `TTY::Termios.get(fd) : Termios` | Read attributes. |
-| `Termios#set(fd, action = SetAction::Now) : Nil` | Write attributes. |
-| `Termios#input`, `#output`, `#control`, `#local` | Get flag sets. |
-| `Termios#input=`, `#output=`, `#control=`, `#local=` | Set flag sets. |
-| `Termios#line`, `#line=` | Line discipline; no-op on Darwin. |
-| `Termios#[cc]`, `#[]=(cc, value)` | Access control characters. |
-| `Termios#baud`, `#baud=` | Standard baud get/set. |
-| `Termios#custom_baud?` | True when Linux `BOther` is active; always false on Darwin. |
-| `Termios#read_timeout`, `#read_timeout=` | `Time::Span?` mapped to `MIN`/`TIME`. |
-| `Termios#make_raw`, `#make_cbreak` | Mutate the struct to raw/cbreak settings. |
-| `Termios#to_s(io)` | Human-readable termios summary. |
+| Type/API                                             | Description                                                                                |
+|------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| `TTY::SetAction`                                     | `Now`, `Drain`, `Flush`; maps to `TCSETS`, `TCSETSW`, `TCSETSF`.                           |
+| `TTY::FlushQueue`                                    | `Input`, `Output`, `Both`.                                                                 |
+| `TTY::InputFlag`                                     | Platform termios input flags.                                                              |
+| `TTY::OutputFlag`                                    | Platform termios output flags.                                                             |
+| `TTY::ControlFlag`                                   | Platform termios control flags.                                                            |
+| `TTY::LocalFlag`                                     | Platform termios local flags.                                                              |
+| `TTY::ControlChar`                                   | Platform control-character indexes such as `Min`, `Time`, `Intr`, `Quit`, `Start`, `Stop`. |
+| `TTY::Baud`                                          | Standard baud enum; Linux also has `BOther` for custom speeds.                             |
+| `TTY::Termios.get(fd) : Termios`                     | Read attributes.                                                                           |
+| `Termios#set(fd, action = SetAction::Now) : Nil`     | Write attributes.                                                                          |
+| `Termios#input`, `#output`, `#control`, `#local`     | Get flag sets.                                                                             |
+| `Termios#input=`, `#output=`, `#control=`, `#local=` | Set flag sets.                                                                             |
+| `Termios#line`, `#line=`                             | Line discipline; no-op on Darwin.                                                          |
+| `Termios#[cc]`, `#[]=(cc, value)`                    | Access control characters.                                                                 |
+| `Termios#baud`, `#baud=`                             | Standard baud get/set.                                                                     |
+| `Termios#custom_baud?`                               | True when Linux `BOther` is active; always false on Darwin.                                |
+| `Termios#read_timeout`, `#read_timeout=`             | `Time::Span?` mapped to `MIN`/`TIME`.                                                      |
+| `Termios#make_raw`, `#make_cbreak`                   | Mutate the struct to raw/cbreak settings.                                                  |
+| `Termios#to_s(io)`                                   | Human-readable termios summary.                                                            |
 
 Linux-only custom baud:
 
-| API | Description |
-| --- | --- |
-| `TTY::Termios2.get(fd) : Termios2` | Read `termios2`. |
-| `TTY::Termios2.from(termios : Termios) : Termios2` | Copy a `Termios` into `Termios2`. |
-| `Termios2#set(fd, action = SetAction::Now) : Nil` | Write `termios2`. |
-| `Termios2#input_speed`, `#output_speed` | Raw speed fields. |
-| `Termios2#custom_baud=(rate : UInt32)` | Set `BOther` with a custom baud rate. |
-| `Termios2#custom_baud?` | Whether `BOther` is active. |
+| API                                                | Description                           |
+|----------------------------------------------------|---------------------------------------|
+| `TTY::Termios2.get(fd) : Termios2`                 | Read `termios2`.                      |
+| `TTY::Termios2.from(termios : Termios) : Termios2` | Copy a `Termios` into `Termios2`.     |
+| `Termios2#set(fd, action = SetAction::Now) : Nil`  | Write `termios2`.                     |
+| `Termios2#input_speed`, `#output_speed`            | Raw speed fields.                     |
+| `Termios2#custom_baud=(rate : UInt32)`             | Set `BOther` with a custom baud rate. |
+| `Termios2#custom_baud?`                            | Whether `BOther` is active.           |
 
 ### Window size
 
-| API | Description |
-| --- | --- |
+| API                                                            | Description           |
+|----------------------------------------------------------------|-----------------------|
 | `TTY::Winsize.new(rows = 0, cols = 0, xpixel = 0, ypixel = 0)` | Create a size struct. |
-| `Winsize#rows`, `#cols`, `#xpixel`, `#ypixel` | Mutable properties. |
-| `TTY::Winsize.get(fd) : Winsize` | Read size. |
-| `Winsize#set(fd) : Nil` | Write size. |
+| `Winsize#rows`, `#cols`, `#xpixel`, `#ypixel`                  | Mutable properties.   |
+| `TTY::Winsize.get(fd) : Winsize`                               | Read size.            |
+| `Winsize#set(fd) : Nil`                                        | Write size.           |
 
 ### Control and session
 
-| API | Description |
-| --- | --- |
-| `TTY.pending_input(fd) : Int32` | Bytes available to read. |
-| `TTY.pending_output(fd) : Int32` | Bytes still queued for output. |
-| `TTY.inject(fd, byte : UInt8) : Nil` | Inject one input byte (`TIOCSTI`). |
-| `TTY.send_break(fd) : Nil` | Assert break. |
-| `TTY.clear_break(fd) : Nil` | Clear break. |
-| `TTY.modem_status(fd) : ModemLine` | Read modem lines. |
-| `TTY.set_modem_status(fd, lines : ModemLine) : Nil` | Write modem lines. |
-| `TTY::ModemLine` | Flags: `LE`, `DTR`, `RTS`, `ST`, `SR`, `CTS`, `CD`, `RI`, `DSR`. |
-| `TTY::Session.leader : Int32` | Call `setsid` in the current process. |
-| `TTY::Session.make_controlling(fd) : Nil` | Make fd the controlling terminal (`TIOCSCTTY`). |
-| `TTY::Session.foreground_pgrp(fd) : Int32` | Read foreground process group (`TIOCGPGRP`). |
-| `TTY::Session.set_foreground_pgrp(fd, pgrp) : Nil` | Set foreground process group (`TIOCSPGRP`). |
-| `TTY::Session.exclusive(fd, enable = true) : Nil` | Toggle exclusive terminal mode (`TIOCEXCL`/`TIOCNXCL`). |
+| API                                                 | Description                                                      |
+|-----------------------------------------------------|------------------------------------------------------------------|
+| `TTY.pending_input(fd) : Int32`                     | Bytes available to read.                                         |
+| `TTY.pending_output(fd) : Int32`                    | Bytes still queued for output.                                   |
+| `TTY.inject(fd, byte : UInt8) : Nil`                | Inject one input byte (`TIOCSTI`).                               |
+| `TTY.send_break(fd) : Nil`                          | Assert break.                                                    |
+| `TTY.clear_break(fd) : Nil`                         | Clear break.                                                     |
+| `TTY.modem_status(fd) : ModemLine`                  | Read modem lines.                                                |
+| `TTY.set_modem_status(fd, lines : ModemLine) : Nil` | Write modem lines.                                               |
+| `TTY::ModemLine`                                    | Flags: `LE`, `DTR`, `RTS`, `ST`, `SR`, `CTS`, `CD`, `RI`, `DSR`. |
+| `TTY::Session.leader : Int32`                       | Call `setsid` in the current process.                            |
+| `TTY::Session.make_controlling(fd) : Nil`           | Make fd the controlling terminal (`TIOCSCTTY`).                  |
+| `TTY::Session.foreground_pgrp(fd) : Int32`          | Read foreground process group (`TIOCGPGRP`).                     |
+| `TTY::Session.set_foreground_pgrp(fd, pgrp) : Nil`  | Set foreground process group (`TIOCSPGRP`).                      |
+| `TTY::Session.exclusive(fd, enable = true) : Nil`   | Toggle exclusive terminal mode (`TIOCEXCL`/`TIOCNXCL`).          |
 
 ### PTY
 
-| API | Description |
-| --- | --- |
-| `TTY::PTY.open : PTY` | Allocate a PTY pair. |
-| `TTY::PTY.spawn(command, args = [] of String, env = ENV.to_h, winsize = nil) : PTY::Process` | Spawn a child on a new PTY. |
-| `TTY::PTY.wait(pid : Int32) : ChildStatus` | Blocking wait by pid. |
-| `PTY#master_fd`, `#slave_fd`, `#slave_name` | Raw fds and slave path. |
-| `PTY#closed? : Bool` | Whether master is closed. |
-| `PTY#close_slave : Nil` | Close only the slave fd. |
-| `PTY#close : Nil` | Idempotently close slave and master. |
-| `PTY#master_io`, `#slave_io` | `IO::FileDescriptor` adapters. |
-| `PTY#read_master(buffer)`, `#write_master(data)` | Master-side I/O. |
-| `PTY#read_slave(buffer)`, `#write_slave(data)` | Slave-side I/O. |
-| `PTY#wait_readable(timeout_ms = -1)`, `#wait_writable(timeout_ms = -1)` | PTY readiness. |
-| `PTY#termios`, `#termios=` | Terminal attributes on the effective fd. |
-| `PTY#winsize`, `#winsize=` | Window size. |
+| API                                                                                          | Description                              |
+|----------------------------------------------------------------------------------------------|------------------------------------------|
+| `TTY::PTY.open : PTY`                                                                        | Allocate a PTY pair.                     |
+| `TTY::PTY.spawn(command, args = [] of String, env = ENV.to_h, winsize = nil) : PTY::Process` | Spawn a child on a new PTY.              |
+| `TTY::PTY.wait(pid : Int32) : ChildStatus`                                                   | Blocking wait by pid.                    |
+| `PTY#master_fd`, `#slave_fd`, `#slave_name`                                                  | Raw fds and slave path.                  |
+| `PTY#closed? : Bool`                                                                         | Whether master is closed.                |
+| `PTY#close_slave : Nil`                                                                      | Close only the slave fd.                 |
+| `PTY#close : Nil`                                                                            | Idempotently close slave and master.     |
+| `PTY#master_io`, `#slave_io`                                                                 | `IO::FileDescriptor` adapters.           |
+| `PTY#read_master(buffer)`, `#write_master(data)`                                             | Master-side I/O.                         |
+| `PTY#read_slave(buffer)`, `#write_slave(data)`                                               | Slave-side I/O.                          |
+| `PTY#wait_readable(timeout_ms = -1)`, `#wait_writable(timeout_ms = -1)`                      | PTY readiness.                           |
+| `PTY#termios`, `#termios=`                                                                   | Terminal attributes on the effective fd. |
+| `PTY#winsize`, `#winsize=`                                                                   | Window size.                             |
 
 ### PTY process
 
-| API | Description |
-| --- | --- |
-| `PTY::Process#pid : Int32` | Child pid. |
-| `PTY::Process#pty : PTY` | Owned PTY. |
-| `PTY::Process#wait : ChildStatus` | Blocking wait; caches status. |
+| API                                                    | Description                                |
+|--------------------------------------------------------|--------------------------------------------|
+| `PTY::Process#pid : Int32`                             | Child pid.                                 |
+| `PTY::Process#pty : PTY`                               | Owned PTY.                                 |
+| `PTY::Process#wait : ChildStatus`                      | Blocking wait; caches status.              |
 | `PTY::Process#wait(timeout_ms : Int32) : ChildStatus?` | Non-blocking/timed wait; `nil` on timeout. |
-| `PTY::Process#status : ChildStatus?` | Cached status, if already known. |
-| `PTY::Process#exited? : Bool` | Whether a status has been observed. |
-| `PTY::Process#signal(signal : Int32) : Nil` | Send a raw signal number. |
-| `PTY::Process#terminate : Nil` | Send `SIGTERM`. |
-| `PTY::Process#kill : Nil` | Send `SIGKILL`. |
-| `PTY::Process#close : Nil` | Close the owned PTY. |
+| `PTY::Process#status : ChildStatus?`                   | Cached status, if already known.           |
+| `PTY::Process#exited? : Bool`                          | Whether a status has been observed.        |
+| `PTY::Process#signal(signal : Int32) : Nil`            | Send a raw signal number.                  |
+| `PTY::Process#terminate : Nil`                         | Send `SIGTERM`.                            |
+| `PTY::Process#kill : Nil`                              | Send `SIGKILL`.                            |
+| `PTY::Process#close : Nil`                             | Close the owned PTY.                       |
 
 ### Child status
 
-| API | Description |
-| --- | --- |
-| `ChildStatus#exited? : Bool` | Normal exit. |
-| `ChildStatus#exit_status : Int32` | Exit code when `exited?`. |
-| `ChildStatus#signaled? : Bool` | Terminated by a signal. |
+| API                               | Description                |
+|-----------------------------------|----------------------------|
+| `ChildStatus#exited? : Bool`      | Normal exit.               |
+| `ChildStatus#exit_status : Int32` | Exit code when `exited?`.  |
+| `ChildStatus#signaled? : Bool`    | Terminated by a signal.    |
 | `ChildStatus#term_signal : Int32` | Terminating signal number. |
-| `ChildStatus#stopped? : Bool` | Stopped by job control. |
-| `ChildStatus#success? : Bool` | Exited with status `0`. |
+| `ChildStatus#stopped? : Bool`     | Stopped by job control.    |
+| `ChildStatus#success? : Bool`     | Exited with status `0`.    |
 
 ### Errors
 
-| API | Description |
-| --- | --- |
-| `TTY::Error` | Base shard error. |
-| `TTY::PTY::Error` | PTY-specific error. |
-| `TTY::Syscall::Error` | Syscall failure with context. |
-| `Syscall::Error#errno`, `#errno_name` | Numeric errno and short name. |
+| API                                                    | Description                                            |
+|--------------------------------------------------------|--------------------------------------------------------|
+| `TTY::Error`                                           | Base shard error.                                      |
+| `TTY::PTY::Error`                                      | PTY-specific error.                                    |
+| `TTY::Syscall::Error`                                  | Syscall failure with context.                          |
+| `Syscall::Error#errno`, `#errno_name`                  | Numeric errno and short name.                          |
 | `Syscall::Error#operation`, `#fd`, `#path`, `#request` | Context fields; optional fields are `nil` when absent. |
 
 ### Low-level syscall module
 
 `TTY::Syscall` is the escape hatch used by the public APIs. It is public, but most callers should prefer the higher-level wrappers.
 
-| API | Description |
-| --- | --- |
-| `Syscall.read(fd, buffer, count)`, `write(fd, data)`, `close(fd)` | Basic fd operations. |
-| `Syscall.ioctl(fd, request, arg)` | Pointer or integer ioctl. |
-| `Syscall.openat(path, flags)` | Open relative to `AT_FDCWD`. |
-| `Syscall.fork`, `dup2`, `setsid`, `kill`, `wait4`, `exit_group` | Process primitives. |
-| `Syscall.poll(fds, nfds, timeout_ms)`, `sleep_ms(timeout_ms)` | Raw poll and poll-based sleep. |
-| `Syscall.socketpair(domain, type, protocol, fds)` | Create a connected fd pair. |
-| `Syscall.reset_child_signal_state` | Reset catchable handlers to default and clear the signal mask. |
-| `Syscall.raw(nr, a1 = 0, a2 = 0, a3 = 0, a4 = 0)` | Direct trampoline call. |
-| `Syscall.check(ret, operation = "syscall", fd = nil, path = nil, request = nil)` | Convert negative returns to `Syscall::Error`. |
+| API                                                                              | Description                                                    |
+|----------------------------------------------------------------------------------|----------------------------------------------------------------|
+| `Syscall.read(fd, buffer, count)`, `write(fd, data)`, `close(fd)`                | Basic fd operations.                                           |
+| `Syscall.ioctl(fd, request, arg)`                                                | Pointer or integer ioctl.                                      |
+| `Syscall.openat(path, flags)`                                                    | Open relative to `AT_FDCWD`.                                   |
+| `Syscall.fork`, `dup2`, `setsid`, `kill`, `wait4`, `exit_group`                  | Process primitives.                                            |
+| `Syscall.poll(fds, nfds, timeout_ms)`, `sleep_ms(timeout_ms)`                    | Raw poll and poll-based sleep.                                 |
+| `Syscall.socketpair(domain, type, protocol, fds)`                                | Create a connected fd pair.                                    |
+| `Syscall.reset_child_signal_state`                                               | Reset catchable handlers to default and clear the signal mask. |
+| `Syscall.raw(nr, a1 = 0, a2 = 0, a3 = 0, a4 = 0)`                                | Direct trampoline call.                                        |
+| `Syscall.check(ret, operation = "syscall", fd = nil, path = nil, request = nil)` | Convert negative returns to `Syscall::Error`.                  |
 
 Common constants include `WNOHANG`, `EINTR`, `EIO`, `EBADF`, `ECHILD`, `EAGAIN`, `AF_UNIX`, `SOCK_STREAM`, `SIGKILL`, `SIGTERM`, and `SIGSTOP`.
 
