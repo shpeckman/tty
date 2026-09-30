@@ -6,19 +6,22 @@
 
 - Inline Crystal syscall trampoline with zero-through-six-argument calls
 - Termios get/set with input, output, control, and local flag enums
-- Raw and cbreak helpers with scoped restoration
+- Raw and cbreak helpers with scoped restoration, including on exceptions
 - Standard baud rates and Linux custom baud rates through `termios2`/`BOTHER`
-- File descriptor flags, nonblocking mode, close-on-exec, pipes, `dup3`, `fstat`, vectored I/O, and `close_range`
+- File descriptor flags, nonblocking mode, close-on-exec, pipes, `dup3`, `fstat`, vectored I/O, and `close_range` with a `/proc/self/fd` fallback for older kernels
+- Zero-copy transfers with `splice`, `tee`, and `copy_file_range` on Linux
 - Single-fd and multi-fd readiness waits using integer millisecond timeouts
 - Poller abstraction with `poll`, Linux `epoll`, and Darwin `kqueue` backends
-- Window size get/set and resize notification
+- Window size get/set, resize notification, current-size query, and size propagation between terminals
 - Input/output queue inspection, drain, break control, software flow control, modem lines, serial counters, and byte injection
 - Session, controlling-terminal, foreground process-group, process-group, line-discipline, and exclusive-mode helpers
 - PTY open/close, Linux `TIOCGPTPEER`, master/slave fd access, and optional `IO::FileDescriptor` adapters
+- Fiber-aware `PTY::IO` that integrates the master with the Crystal event loop
+- Configurable end-of-stream behavior for master reads after child exit
 - PTY packet mode with data and control packet parsing
-- PTY child spawning with exec error reporting, working-directory support, fd cleanup, signal-state reset, `wait`, timed `wait`, `terminate`, and `kill`
-- Linux `waitid` child events for exit, signal, core dump, stop, continue, and trap states
-- Linux pidfd creation, exit polling, and pidfd-based signals
+- PTY child spawning with exec error reporting, working-directory support, fd cleanup, full signal-state reset, `wait`, timed `wait`, `terminate`, and `kill`
+- Linux `waitid` child events for exit, signal, core dump, stop, continue, and trap states, composable with `wait`
+- Linux pidfd creation, exit polling, pidfd-based signals, and pidfd-backed timed waits
 - Structured syscall errors with `errno`, `errno_name`, `operation`, `fd`, `path`, and `request`
 
 ## Requirements
@@ -98,6 +101,16 @@ second = Bytes.new(3)
 read = TTY::FD.readv(fd, [first, second])
 ```
 
+Zero-copy transfers (Linux-only; one side of `splice`/`tee` must be a pipe, `copy_file_range` works on regular files):
+
+```crystal
+TTY::FD.splice(read_fd, write_fd, 4096)
+TTY::FD.tee(read_fd, write_fd, 4096)
+TTY::FD.copy_file_range(source_fd, target_fd, 4096)
+```
+
+`TTY::FD.close_range(first, last)` closes an fd range in one syscall and falls back to walking `/proc/self/fd` on kernels without `close_range` or under restrictive seccomp policies.
+
 ## Readiness
 
 Single-fd waits:
@@ -169,6 +182,33 @@ pty.close
 
 `PTY#wait_priority(timeout_ms)` waits for priority data such as packet-mode control information.
 
+## Evented I/O
+
+`PTY::IO` adapts the master fd into a Crystal `IO` integrated with the event loop. Reads and writes suspend the current fiber instead of blocking the thread, so other fibers keep running while a read waits for child output.
+
+```crystal
+process = TTY::PTY.spawn("sh", ["-c", "sleep 1; echo done"], env: {"PATH" => "/usr/bin:/bin"})
+io = process.pty.io
+
+spawn do
+  sleep 0.5.seconds
+  puts "other work happens while the read is pending"
+end
+
+puts io.gets
+process.wait
+process.close
+```
+
+The wrapper is buffered, so call `io.flush` (or enable `flush_on_newline`) after writes that must reach the child immediately. `read_timeout` and `write_timeout` map to `IO::TimeoutError`.
+
+Notes:
+
+- Only one `PTY::IO` may exist per `PTY`; `PTY#io` raises `PTY::Error` on a second attempt.
+- Creating a `PTY::IO` puts the master fd into nonblocking mode. Avoid mixing raw `read_master`/`write_master` calls with an active evented IO on the same PTY.
+- Closing the `PTY::IO` closes the PTY, and closing the PTY closes the IO; either order is safe.
+- After the child exits and the slave side is gone, reads report end-of-stream instead of raising `EIO` (see `PTY#eof_on_error` below).
+
 ## Process lifecycle
 
 Basic lifecycle:
@@ -186,7 +226,9 @@ status.term_signal
 process.close
 ```
 
-`process.wait` blocks until exit. `process.wait(timeout_ms)` returns `TTY::ChildStatus?` and returns `nil` on timeout. `process.status` returns the cached terminal status after a successful wait.
+`process.wait` blocks until exit. `process.wait(timeout_ms)` returns `TTY::ChildStatus?` and returns `nil` on timeout; when a pidfd is available the timed wait sleeps on the pidfd instead of polling, so it returns promptly at exit. `process.status` returns the cached terminal status after a successful wait.
+
+The default spawn environment inherits `ENV` and adds a `TERM` fallback (`xterm-256color`) when the parent has none, so curses-style programs work out of the box. Passing an explicit `env:` disables the fallback.
 
 Spawn options:
 
@@ -233,6 +275,8 @@ event.signaled?
 event.term_signal
 process.close
 ```
+
+`wait_event` peeks with `WNOWAIT` and reaps terminal children through `wait4`, so `wait_event` and `wait` can be mixed in either order: whichever observes termination first records both the cached status and the terminal event, and the other returns the recorded value. Timed `wait_event` polls with `WNOHANG` because pidfds do not signal stop/continue transitions.
 
 Linux pidfds provide pollable process references and pidfd-based signals:
 
@@ -284,6 +328,19 @@ pty = TTY::PTY.open
 pty.winsize = TTY::Winsize.new(24_u16, 80_u16)
 puts pty.winsize.cols
 pty.close
+```
+
+Query the size of an existing terminal; returns `nil` when the fd is not a terminal:
+
+```crystal
+size = TTY::Winsize.current(0)
+puts size.try(&.cols)
+```
+
+Keep a PTY in sync with a real terminal: apply the current size immediately and follow `SIGWINCH`:
+
+```crystal
+TTY::Winsize.propagate(0, pty.master_fd)
 ```
 
 Resize notifications for a terminal fd:
@@ -370,7 +427,16 @@ Duplicate to an exact fd. Linux-only.
 Duplicate with close-on-exec.
 
 **`TTY::FD.close_range(first, last = Int32::MAX) : Nil`**  
-Close a range of fds. Linux-only.
+Close a range of fds, falling back to a `/proc/self/fd` walk when `close_range` is unavailable. Linux-only.
+
+**`TTY::FD.splice(from, to, count, flags = 0) : Int32`**  
+Move bytes between fds without copying through userspace; one side must be a pipe. Linux-only.
+
+**`TTY::FD.tee(from, to, count, flags = 0) : Int32`**  
+Duplicate pipe data into another pipe without consuming it. Linux-only.
+
+**`TTY::FD.copy_file_range(from, to, count) : Int32`**  
+Copy bytes between regular files in-kernel. Linux-only.
 
 **`TTY::FD.stat(fd)`**  
 Read Linux stat metadata. Linux-only.
@@ -511,7 +577,7 @@ Standard baud get/set.
 True when Linux `BOther` is active; always false on Darwin.
 
 **`Termios#read_timeout`, `#read_timeout=`**  
-`Time::Span?` mapped to `MIN`/`TIME`.
+`Time::Span?` mapped to `MIN`/`TIME`; `nil` whenever `TIME` is zero (blocking read, any `MIN`).
 
 **`Termios#make_raw`, `#make_cbreak`**  
 Mutate the struct to raw/cbreak settings.
@@ -549,6 +615,12 @@ Mutable properties.
 
 **`TTY::Winsize.get(fd) : Winsize`**  
 Read size.
+
+**`TTY::Winsize.current(fd = 0) : Winsize?`**  
+Read size, or `nil` when the fd is not a terminal.
+
+**`TTY::Winsize.propagate(from_fd, to_fd) : Nil`**  
+Apply the source size immediately and mirror later `SIGWINCH` resizes.
 
 **`Winsize#set(fd) : Nil`**  
 Write size.
@@ -606,8 +678,11 @@ Flags: `LE`, `DTR`, `RTS`, `ST`, `SR`, `CTS`, `CD`, `RI`, `DSR`.
 **`TTY::SerialICount`**  
 Serial interrupt counter fields.
 
-**`TTY::Session.leader : Int32`**  
+**`TTY::Session.start : Int32`**  
 Call `setsid` in the current process.
+
+**`TTY::Session.leader : Int32`**  
+Deprecated alias for `Session.start`.
 
 **`TTY::Session.make_controlling(fd) : Nil`**  
 Make fd the controlling terminal (`TIOCSCTTY`).
@@ -650,8 +725,8 @@ Query exclusive mode. Linux-only.
 **`TTY::PTY.open : PTY`**  
 Allocate a PTY pair.
 
-**`PTY.spawn(command, args = [] of String, env = ENV.to_h, winsize = nil, working_dir = nil, close_fds = true) : PTY::Process`**  
-Spawn a child on a new PTY.
+**`PTY.spawn(command, args = [] of String, *, env = SpawnOptions.default_env, winsize = nil, working_dir = nil, close_fds = true) : PTY::Process`**  
+Spawn a child on a new PTY; the default environment inherits `ENV` plus a `TERM` fallback.
 
 **`PTY.spawn(command, args, options : SpawnOptions) : PTY::Process`**  
 Spawn with a `SpawnOptions` value.
@@ -665,11 +740,14 @@ Raw fds and slave path.
 **`PTY#closed? : Bool`**  
 Whether master is closed.
 
+**`PTY#eof_on_error : Bool`**  
+Property, default `true`: master reads after child exit report end-of-stream (`0`/`EndOfStream`) instead of raising `EIO`. Set to `false` to keep raising.
+
 **`PTY#close_slave : Nil`**  
 Close only the slave fd.
 
 **`PTY#close : Nil`**  
-Idempotently close slave and master.
+Idempotently close slave and master; closes the evented `PTY::IO` first when one exists.
 
 **`PTY#locked? : Bool`**  
 Query PTY slave lock state. Linux-only.
@@ -686,8 +764,17 @@ Read a packet-mode data or control packet.
 **`PTY#master_io`, `#slave_io`**  
 `IO::FileDescriptor` adapters.
 
+**`PTY#io : PTY::IO`**  
+Fiber-aware `IO` over the master, integrated with the Crystal event loop; one per PTY. See *Evented I/O*.
+
+**`PTY::IO.new(pty, eof_on_error = nil)`**  
+Create the evented wrapper directly; `eof_on_error` defaults to the PTY's setting.
+
 **`PTY#read_master(buffer)`, `#write_master(data)`**  
-Master-side I/O.
+Master-side I/O; reads return `0` on child exit unless `eof_on_error` is disabled.
+
+**`PTY#read_master_v(buffers)`, `#write_master_v(buffers)`**  
+Vectored master-side I/O.
 
 **`PTY#read_slave(buffer)`, `#write_slave(data)`**  
 Slave-side I/O.
@@ -708,8 +795,11 @@ On Linux, `PTY.open` uses `TIOCGPTPEER` when available and falls back to opening
 
 ### Spawn options and packets
 
-**`TTY::SpawnOptions.new(env = ENV.to_h, winsize = nil, working_dir = nil, close_fds = true)`**  
+**`TTY::SpawnOptions.new(env = SpawnOptions.default_env, winsize = nil, working_dir = nil, close_fds = true)`**  
 PTY process options.
+
+**`TTY::SpawnOptions.default_env : Hash(String, String)`**  
+`ENV` plus a `TERM` fallback of `xterm-256color` when unset.
 
 **`SpawnOptions#env`**  
 Child environment.
@@ -750,10 +840,10 @@ Owned PTY.
 Blocking wait; caches terminal status.
 
 **`PTY::Process#wait(timeout_ms : Int32) : ChildStatus?`**  
-Timed wait; `nil` on timeout.
+Timed wait; `nil` on timeout. Uses the pidfd when one is available.
 
 **`PTY::Process#wait_event : ChildEvent`**  
-Blocking Linux `waitid` event. Linux-only.
+Blocking Linux `waitid` event; composes with `wait` in either order. Linux-only.
 
 **`PTY::Process#wait_event(timeout_ms : Int32) : ChildEvent?`**  
 Timed Linux `waitid` event. Linux-only.
@@ -861,6 +951,9 @@ Traditional wait status.
 
 `TTY::ChildEventKind` values are `None`, `Exited`, `Killed`, `Dumped`, `Trapped`, `Stopped`, and `Continued`.
 
+**`TTY::ChildEvent.from_wait_status(pid, status) : ChildEvent`**  
+Reconstruct an event from a traditional wait status word.
+
 ### Errors
 
 **`TTY::Error`**  
@@ -915,6 +1008,15 @@ Open relative to `AT_FDCWD`.
 **`Syscall.pipe2(fds, flags)`, `dup2`, `dup3`, `chdir`, `close_range`**  
 Fd and directory primitives.
 
+**`Syscall.close_fds_from(first, except)`**  
+Close all fds from `first` up, keeping `except`; falls back to a `/proc/self/fd` walk when `close_range` is unavailable. Allocation-free and safe to run after `fork`. Linux-only.
+
+**`Syscall.close_fds_via_procfs(first, last, except)`**  
+Close fds by walking `/proc/self/fd` directly. Linux-only.
+
+**`Syscall.splice(fd_in, offset_in, fd_out, offset_out, count, flags = 0)`, `tee(fd_in, fd_out, count, flags = 0)`, `copy_file_range(fd_in, offset_in, fd_out, offset_out, count, flags = 0)`**  
+Zero-copy transfer primitives; offsets are optional and `nil` uses the current file position. Linux-only.
+
 **`Syscall.fork`, `execve`, `setsid`, `setpgid`, `getpgid`, `kill`, `killpg`**  
 Process primitives.
 
@@ -937,12 +1039,12 @@ Linux epoll primitives.
 Darwin kqueue primitives.
 
 **`Syscall.reset_child_signal_state`**  
-Reset catchable handlers to default and clear the signal mask.
+Reset all catchable handlers to default (including Linux real-time signals, skipping the NPTL-reserved 32/33) and clear the signal mask.
 
 **`Syscall.exit_group(code)`**  
 Exit all threads.
 
-Common constants include `WNOHANG`, `WEXITED`, `WSTOPPED`, `WCONTINUED`, `WNOWAIT`, `EINTR`, `EIO`, `EBADF`, `ECHILD`, `EAGAIN`, `ENOSYS`, `AF_UNIX`, `SOCK_STREAM`, `SIGKILL`, `SIGTERM`, `SIGCONT`, and `SIGSTOP`.
+Common constants include `WNOHANG`, `WEXITED`, `WSTOPPED`, `WCONTINUED`, `WNOWAIT`, `EINTR`, `EIO`, `EBADF`, `ECHILD`, `EAGAIN`, `ENOSYS`, `AF_UNIX`, `SOCK_STREAM`, `SIGKILL`, `SIGTERM`, `SIGCONT`, and `SIGSTOP`. Errno constants always use the host platform's numbering (`EAGAIN` and `ENOSYS` differ between Linux and Darwin), and `SPLICE_F_MOVE`/`SPLICE_F_NONBLOCK`/`SPLICE_F_MORE`/`SPLICE_F_GIFT` are available on Linux.
 
 ## Examples
 
@@ -972,20 +1074,22 @@ The target runs every `examples/*.cr` file with `crystal run`:
 ```sh
 make spec
 make examples
+make bench
 make clean
 ```
 
-`make spec` runs the spec suite. `make examples` runs all examples. `make clean` removes `.build` when build artifacts exist.
+`make spec` runs the spec suite. `make examples` runs all examples. `make bench` runs the `benchmarks/` programs with `--release` (raw syscall round-trips, PTY throughput with and without vectored I/O, and poller latency across idle fds). `make clean` removes `.build` when build artifacts exist.
 
 ## Notes
 
 - The core APIs use raw values: `Int32` fds, integer millisecond timeouts, and integer signal numbers.
 - Some convenience APIs still use Crystal stdlib types, including `IO::FileDescriptor`, `Time::Span` for termios read timeouts, `ENV` as the default spawn environment, and `Signal::WINCH` for resize callbacks.
-- `TTY::PTY.spawn` resets catchable child signal handlers to default and clears the signal mask before `execve`.
+- `TTY::PTY::IO` wraps the master in the Crystal event loop; constructing it switches the master fd to nonblocking mode, and only one may exist per PTY.
+- `TTY::PTY.spawn` resets all catchable child signal handlers to default and clears the signal mask before `execve`.
 - `TTY::PTY.spawn` uses a close-on-exec error pipe so exec failures are reported to the parent instead of appearing only as exit status `127`.
-- `TTY::Session.leader` calls `setsid`; use it only in a process that is not already a process-group leader.
+- `TTY::Session.start` calls `setsid`; use it only in a process that is not already a process-group leader.
 - Kernel ABI structs use explicit external layouts for ioctl and syscall data.
-- Linux-only features include `TIOCGPTPEER`, `termios2`, `close_range`, `waitid` child events, pidfds, `epoll`, serial counters, modem waiting, and several advanced ioctls.
+- Linux-only features include `TIOCGPTPEER`, `termios2`, `close_range` and its `/proc/self/fd` fallback, `splice`/`tee`/`copy_file_range`, `waitid` child events, pidfds, `epoll`, serial counters, modem waiting, and several advanced ioctls.
 
 ## License
 
