@@ -310,13 +310,53 @@ module TTY::Syscall
     ret
   end
 
-  def self.read(fd : Int32, buffer : Pointer(UInt8), count : Int) : Int32
-    check(raw(NR_READ, fd.to_i64, buffer.address.to_i64, count.to_i64), operation: "read", fd: fd).to_i32
+  def self.arg(value : Int) : Int64
+    value.to_i64
   end
 
-  def self.write(fd : Int32, buffer : Pointer(UInt8), count : Int) : Int32
-    check(raw(NR_WRITE, fd.to_i64, buffer.address.to_i64, count.to_i64), operation: "write", fd: fd).to_i32
+  def self.arg(value : Pointer(T)) : Int64 forall T
+    value.address.to_i64
   end
+
+  def self.arg(value : Nil) : Int64
+    0_i64
+  end
+
+  def self.arg(value : String) : Int64
+    value.to_unsafe.address.to_i64
+  end
+
+  macro def_syscall(name, nr, *args, returns = Int32, generic = nil, op = nil, fd = nil, path = nil, request = nil, linux_only = false, darwin_only = false)
+    {% if linux_only && darwin_only %}
+      {% raise "def_syscall accepts linux_only or darwin_only, not both" %}
+    {% end %}
+    {% operation = op || name.id.stringify %}
+    {% fd_report = fd %}
+    {% unless fd_report %}
+      {% for argument in args %}
+        {% if argument.var.stringify == "fd" %}
+          {% fd_report = argument.var %}
+        {% end %}
+      {% end %}
+    {% end %}
+    def self.{{name.id}}({% for argument, index in args %}{{argument}}{% if index < args.size - 1 %}, {% end %}{% end %}) : {{returns}}{% if generic %} forall {{generic}}{% end %}
+      {% if linux_only && flag?(:darwin) %}
+        raise TTY::Error.new({{name.id.stringify + " is Linux-only"}})
+      {% elsif darwin_only && !flag?(:darwin) %}
+        raise TTY::Error.new({{name.id.stringify + " is Darwin-only"}})
+      {% else %}
+        {% if returns.stringify == "Nil" %}
+          check(raw({{nr}}{% for argument in args %}, arg({{argument.var}}){% end %}), operation: {{operation}}{% if fd_report %}, fd: {{fd_report}}{% end %}{% if path %}, path: {{path}}{% end %}{% if request %}, request: {{request}}{% end %})
+        {% else %}
+          check(raw({{nr}}{% for argument in args %}, arg({{argument.var}}){% end %}), operation: {{operation}}{% if fd_report %}, fd: {{fd_report}}{% end %}{% if path %}, path: {{path}}{% end %}{% if request %}, request: {{request}}{% end %}).to_i32
+        {% end %}
+      {% end %}
+    end
+  end
+
+  def_syscall read, NR_READ, fd : Int32, buffer : Pointer(UInt8), count : Int
+
+  def_syscall write, NR_WRITE, fd : Int32, buffer : Pointer(UInt8), count : Int
 
   def self.write(fd : Int32, data : String) : Int32
     write(fd, data.to_unsafe, data.bytesize)
@@ -326,21 +366,13 @@ module TTY::Syscall
     write(fd, data.to_unsafe, data.size)
   end
 
-  def self.readv(fd : Int32, iovecs : Pointer(IOVec), count : Int32) : Int32
-    check(raw(NR_READV, fd.to_i64, iovecs.address.to_i64, count.to_i64), operation: "readv", fd: fd).to_i32
-  end
+  def_syscall readv, NR_READV, fd : Int32, iovecs : Pointer(IOVec), count : Int32
 
-  def self.writev(fd : Int32, iovecs : Pointer(IOVec), count : Int32) : Int32
-    check(raw(NR_WRITEV, fd.to_i64, iovecs.address.to_i64, count.to_i64), operation: "writev", fd: fd).to_i32
-  end
+  def_syscall writev, NR_WRITEV, fd : Int32, iovecs : Pointer(IOVec), count : Int32
 
-  def self.close(fd : Int32) : Nil
-    check(raw(NR_CLOSE, fd.to_i64), operation: "close", fd: fd)
-  end
+  def_syscall close, NR_CLOSE, fd : Int32, returns: Nil
 
-  def self.fcntl(fd : Int32, command : Int32, argument : Int64 = 0_i64) : Int32
-    check(raw(NR_FCNTL, fd.to_i64, command.to_i64, argument), operation: "fcntl", fd: fd).to_i32
-  end
+  def_syscall fcntl, NR_FCNTL, fd : Int32, command : Int32, argument : Int64 = 0_i64
 
   def self.fstat(fd : Int32)
     {% if flag?(:darwin) %}
@@ -352,13 +384,9 @@ module TTY::Syscall
     {% end %}
   end
 
-  def self.ioctl_result(fd : Int32, request : UInt64, arg : Pointer(T)) : Int32 forall T
-    check(raw(NR_IOCTL, fd.to_i64, request.to_i64, arg.as(Pointer(Void)).address.to_i64), operation: "ioctl", fd: fd, request: request).to_i32
-  end
+  def_syscall ioctl_result, NR_IOCTL, fd : Int32, request : UInt64, arg : Pointer(T), generic: T, op: "ioctl", request: request
 
-  def self.ioctl_result(fd : Int32, request : UInt64, arg : Int) : Int32
-    check(raw(NR_IOCTL, fd.to_i64, request.to_i64, arg.to_i64), operation: "ioctl", fd: fd, request: request).to_i32
-  end
+  def_syscall ioctl_result, NR_IOCTL, fd : Int32, request : UInt64, arg : Int, op: "ioctl", request: request
 
   def self.ioctl(fd : Int32, request : UInt64, arg : Pointer(T)) : Nil forall T
     ioctl_result(fd, request, arg)
@@ -384,62 +412,28 @@ module TTY::Syscall
     {% end %}
   end
 
-  def self.dup2(old_fd : Int32, new_fd : Int32) : Nil
-    check(raw(NR_DUP2, old_fd.to_i64, new_fd.to_i64), operation: "dup2", fd: new_fd)
-  end
+  def_syscall dup2, NR_DUP2, old_fd : Int32, new_fd : Int32, returns: Nil, fd: new_fd
 
-  def self.dup3(old_fd : Int32, new_fd : Int32, flags : Int32 = 0_i32) : Nil
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("dup3 is not implemented by the Darwin syscall backend")
-    {% else %}
-      check(raw(NR_DUP3, old_fd.to_i64, new_fd.to_i64, flags.to_i64), operation: "dup3", fd: new_fd)
-    {% end %}
-  end
+  def_syscall dup3, NR_DUP3, old_fd : Int32, new_fd : Int32, flags : Int32 = 0_i32, returns: Nil, fd: new_fd, linux_only: true
 
-  def self.chdir(path : String) : Nil
-    check(raw(NR_CHDIR, path.to_unsafe.address.to_i64), operation: "chdir", path: path)
-  end
+  def_syscall chdir, NR_CHDIR, path : String, returns: Nil, path: path
 
-  def self.fork : Int32
-    check(raw(NR_FORK), operation: "fork").to_i32
-  end
+  def_syscall fork, NR_FORK
 
   def self.execve(path : String, argv : Pointer(Pointer(UInt8)), envp : Pointer(Pointer(UInt8))) : NoReturn
     ret = raw(NR_EXECVE, path.to_unsafe.address.to_i64, argv.address.to_i64, envp.address.to_i64)
     raise Error.new(-ret.to_i32, operation: "execve", path: path)
   end
 
-  def self.getpid : Int32
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("getpid is not implemented by the Darwin syscall backend")
-    {% else %}
-      check(raw(NR_GETPID), operation: "getpid").to_i32
-    {% end %}
-  end
+  def_syscall getpid, NR_GETPID, linux_only: true
 
-  def self.getpgid(pid : Int32) : Int32
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("getpgid is not implemented by the Darwin syscall backend")
-    {% else %}
-      check(raw(NR_GETPGID, pid.to_i64), operation: "getpgid").to_i32
-    {% end %}
-  end
+  def_syscall getpgid, NR_GETPGID, pid : Int32, linux_only: true
 
-  def self.setpgid(pid : Int32, pgrp : Int32) : Nil
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("setpgid is not implemented by the Darwin syscall backend")
-    {% else %}
-      check(raw(NR_SETPGID, pid.to_i64, pgrp.to_i64), operation: "setpgid")
-    {% end %}
-  end
+  def_syscall setpgid, NR_SETPGID, pid : Int32, pgrp : Int32, returns: Nil, linux_only: true
 
-  def self.setsid : Int32
-    check(raw(NR_SETSID), operation: "setsid").to_i32
-  end
+  def_syscall setsid, NR_SETSID
 
-  def self.kill(pid : Int32, signal : Int32) : Nil
-    check(raw(NR_KILL, pid.to_i64, signal.to_i64), operation: "kill")
-  end
+  def_syscall kill, NR_KILL, pid : Int32, signal : Int32, returns: Nil
 
   def self.killpg(pgrp : Int32, signal : Int32) : Nil
     kill(-pgrp, signal)
@@ -461,13 +455,7 @@ module TTY::Syscall
     {% end %}
   end
 
-  def self.pidfd_open(pid : Int32, flags : UInt32 = 0_u32) : Int32
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("pidfd_open is Linux-only")
-    {% else %}
-      check(raw(NR_PIDFD_OPEN, pid.to_i64, flags.to_i64), operation: "pidfd_open").to_i32
-    {% end %}
-  end
+  def_syscall pidfd_open, NR_PIDFD_OPEN, pid : Int32, flags : UInt32 = 0_u32, linux_only: true
 
   def self.pidfd_send_signal(pidfd : Int32, signal : Int32, flags : UInt32 = 0_u32) : Nil
     {% if flag?(:darwin) %}
@@ -477,9 +465,7 @@ module TTY::Syscall
     {% end %}
   end
 
-  def self.poll(fds : Pointer(Void), nfds : UInt64, timeout_ms : Int32) : Int32
-    check(raw(NR_POLL, fds.address.to_i64, nfds.to_i64, timeout_ms.to_i64), operation: "poll").to_i32
-  end
+  def_syscall poll, NR_POLL, fds : Pointer(Void), nfds : UInt64, timeout_ms : Int32
 
   def self.sleep_ms(timeout_ms : Int32) : Nil
     poll(Pointer(Void).null, 0_u64, timeout_ms)
@@ -487,17 +473,9 @@ module TTY::Syscall
     raise ex unless ex.errno == EINTR
   end
 
-  def self.socketpair(domain : Int32, type : Int32, protocol : Int32, fds : Pointer(Int32)) : Nil
-    check(raw(NR_SOCKETPAIR, domain.to_i64, type.to_i64, protocol.to_i64, fds.address.to_i64), operation: "socketpair")
-  end
+  def_syscall socketpair, NR_SOCKETPAIR, domain : Int32, type : Int32, protocol : Int32, fds : Pointer(Int32), returns: Nil
 
-  def self.close_range(first : Int32, last : Int32, flags : UInt32 = 0_u32) : Nil
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("close_range is Linux-only")
-    {% else %}
-      check(raw(NR_CLOSE_RANGE, first.to_i64, last.to_i64, flags.to_i64), operation: "close_range")
-    {% end %}
-  end
+  def_syscall close_range, NR_CLOSE_RANGE, first : Int32, last : Int32, flags : UInt32 = 0_u32, returns: Nil, linux_only: true
 
   def self.close_range_fallback?(errno : Int32) : Bool
     errno == ENOSYS || errno == EPERM || errno == EINVAL
@@ -562,13 +540,7 @@ module TTY::Syscall
     {% end %}
   end
 
-  def self.tee(fd_in : Int32, fd_out : Int32, count : Int, flags : UInt32 = 0_u32) : Int32
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("tee is Linux-only")
-    {% else %}
-      check(raw(NR_TEE, fd_in.to_i64, fd_out.to_i64, count.to_i64, flags.to_i64), operation: "tee").to_i32
-    {% end %}
-  end
+  def_syscall tee, NR_TEE, fd_in : Int32, fd_out : Int32, count : Int, flags : UInt32 = 0_u32, linux_only: true
 
   def self.copy_file_range(fd_in : Int32, offset_in : Int64?, fd_out : Int32, offset_out : Int64?, count : Int, flags : UInt32 = 0_u32) : Int32
     {% if flag?(:darwin) %}
@@ -582,47 +554,15 @@ module TTY::Syscall
     {% end %}
   end
 
-  def self.epoll_create1(flags : Int32 = 0_i32) : Int32
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("epoll is Linux-only")
-    {% else %}
-      check(raw(NR_EPOLL_CREATE1, flags.to_i64), operation: "epoll_create1").to_i32
-    {% end %}
-  end
+  def_syscall epoll_create1, NR_EPOLL_CREATE1, flags : Int32 = 0_i32, linux_only: true
 
-  def self.epoll_ctl(epfd : Int32, operation : Int32, fd : Int32, event : Pointer(Void)? = nil) : Nil
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("epoll is Linux-only")
-    {% else %}
-      pointer = event || Pointer(Void).null
-      check(raw(NR_EPOLL_CTL, epfd.to_i64, operation.to_i64, fd.to_i64, pointer.address.to_i64), operation: "epoll_ctl", fd: fd)
-    {% end %}
-  end
+  def_syscall epoll_ctl, NR_EPOLL_CTL, epfd : Int32, operation : Int32, fd : Int32, event : Pointer(Void)? = nil, returns: Nil, linux_only: true
 
-  def self.epoll_wait(epfd : Int32, events : Pointer(Void), max_events : Int32, timeout_ms : Int32) : Int32
-    {% if flag?(:darwin) %}
-      raise TTY::Error.new("epoll is Linux-only")
-    {% else %}
-      check(raw(NR_EPOLL_WAIT, epfd.to_i64, events.address.to_i64, max_events.to_i64, timeout_ms.to_i64), operation: "epoll_wait", fd: epfd).to_i32
-    {% end %}
-  end
+  def_syscall epoll_wait, NR_EPOLL_WAIT, epfd : Int32, events : Pointer(Void), max_events : Int32, timeout_ms : Int32, fd: epfd, linux_only: true
 
-  def self.kqueue : Int32
-    {% if flag?(:darwin) %}
-      check(raw(NR_KQUEUE), operation: "kqueue").to_i32
-    {% else %}
-      raise TTY::Error.new("kqueue is Darwin-only")
-    {% end %}
-  end
+  def_syscall kqueue, NR_KQUEUE, darwin_only: true
 
-  def self.kevent(kq : Int32, changes : Pointer(Void), change_count : Int32, events : Pointer(Void), event_count : Int32, timeout : Pointer(Void)? = nil) : Int32
-    {% if flag?(:darwin) %}
-      pointer = timeout || Pointer(Void).null
-      check(raw(NR_KEVENT, kq.to_i64, changes.address.to_i64, change_count.to_i64, events.address.to_i64, event_count.to_i64, pointer.address.to_i64), operation: "kevent", fd: kq).to_i32
-    {% else %}
-      raise TTY::Error.new("kqueue is Darwin-only")
-    {% end %}
-  end
+  def_syscall kevent, NR_KEVENT, kq : Int32, changes : Pointer(Void), change_count : Int32, events : Pointer(Void), event_count : Int32, timeout : Pointer(Void)? = nil, fd: kq, darwin_only: true
 
   def self.reset_child_signal_state : Nil
     {% if flag?(:darwin) %}

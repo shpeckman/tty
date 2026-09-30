@@ -12,6 +12,7 @@ require "./tty/session"
 require "./tty/control"
 require "./tty/pty"
 require "./tty/io"
+require "./tty/macros"
 
 module TTY
   def self.termios(fd : Int32) : Termios

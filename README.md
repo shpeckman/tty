@@ -7,6 +7,7 @@
 - Inline Crystal syscall trampoline with zero-through-six-argument calls
 - Termios get/set with input, output, control, and local flag enums
 - Raw and cbreak helpers with scoped restoration, including on exceptions
+- Macro API: declarative termios configuration, scoped terminal state, and a spawn DSL, with flag names validated at compile time
 - Standard baud rates and Linux custom baud rates through `termios2`/`BOTHER`
 - File descriptor flags, nonblocking mode, close-on-exec, pipes, `dup3`, `fstat`, vectored I/O, and `close_range` with a `/proc/self/fd` fallback for older kernels
 - Zero-copy transfers with `splice`, `tee`, and `copy_file_range` on Linux
@@ -371,6 +372,46 @@ Signal and child-reaping interplay with the runtime:
 - `TTY.on_resize` and `Winsize.propagate` install `Signal::WINCH.trap` handlers that capture the given fd for the lifetime of the process. Trapping replaces any previous `SIGWINCH` handler (last registration wins), and the captured fd number must stay valid: once closed, a recycled fd with the same number receives the window-size writes.
 - `PTY.spawn`'s child path between `fork` and `execve` is allocation-free by design (raw `fork` skips the runtime's `at_fork` handlers). Keep it that way when modifying the spawn path: no heap allocation, no locks, and no stdlib calls before `execve`.
 
+## Macro API
+
+The macro layer is compile-time only: it expands to the same `Termios`, `FD`, and `PTY.spawn` calls used by the imperative API, so there is no runtime cost. Flag and field names are validated during macro expansion; an unknown name fails the build with the list of valid values.
+
+Declarative termios configuration with `TTY.configure`; only declared changes are applied on top of the current terminal state:
+
+```crystal
+TTY.configure(STDIN.fd) do
+  raw                    # or cbreak; applies Termios#make_raw / #make_cbreak
+  local -Echo, -ICanon   # unary +/- on InputFlag, OutputFlag, ControlFlag, LocalFlag members
+  input +ICrNl           # repeated statements accumulate
+  cc min: 1, time: 0     # ControlChar entries, lowercase named arguments
+  baud B9600             # a TTY::Baud member
+  action :drain          # :now (default), :drain or :flush, mapping to SetAction
+end
+```
+
+Scoped terminal state with `TTY.with_terminal`; termios and fd status flags are snapshotted and restored in `ensure`, including when the block raises. The block value is returned:
+
+```crystal
+TTY.with_terminal(STDIN.fd, raw: true, nonblocking: true) do
+  # ...
+end
+```
+
+`raw` and `cbreak` are mutually exclusive; `nonblocking` accepts `true` or `false`. With no options, `with_terminal` only restores what it changed, so `TTY.with_terminal(fd, nonblocking: true)` skips the termios ioctls entirely.
+
+Spawn DSL wrapping `PTY.spawn`:
+
+```crystal
+process = TTY.spawn("sh", ["-c", "ls"]) do
+  env path: "/usr/bin:/bin", term: "xterm-256color"
+  winsize rows: 24, cols: 80
+  working_dir "/tmp"
+  close_fds true
+end
+```
+
+Declared environment entries merge with `SpawnOptions.default_env`. Named-argument keys must be lowercase identifiers in Crystal, so `env` upcases its keys (`env path: ...` sets `PATH`); pass a hash literal for exact-case keys: `env({"foo" => "bar"})`.
+
 ## Public API reference
 
 ### Top-level `TTY`
@@ -410,6 +451,15 @@ Enable cbreak mode for the block, then restore.
 
 **`TTY.cbreak(io, action = SetAction::Now) { ... }`**  
 IO overload of `cbreak`.
+
+**`TTY.configure(fd) { ... }`**  
+Macro: declarative termios configuration; expands to `Termios` get/mutate/set.
+
+**`TTY.with_terminal(fd, raw: false, cbreak: false, nonblocking: nil) { ... }`**  
+Macro: scoped termios and fd-flag state with guaranteed restoration.
+
+**`TTY.spawn(command, args = [] of String) { ... }`**  
+Macro: spawn DSL; expands to `PTY.spawn` with the declared options.
 
 **`TTY.flush(fd, queue = FlushQueue::Both) : Nil`**  
 Flush input/output queues.
@@ -1088,6 +1138,9 @@ The target runs every `examples/*.cr` file with `crystal run`:
 - `poller`
 - `spawn_error`
 - `child_events`
+- `configure`
+- `with_terminal`
+- `spawn_dsl`
 
 ## Development
 
@@ -1098,7 +1151,7 @@ make bench
 make clean
 ```
 
-`make spec` runs the spec suite. `make examples` runs all examples. `make bench` runs the `benchmarks/` programs with `--release` (raw syscall round-trips, PTY throughput with and without vectored I/O, and poller latency across idle fds). `make clean` removes `.build` when build artifacts exist.
+`make spec` runs the spec suite. `make examples` runs all examples. `make bench` runs the `benchmarks/` programs with `--release` (raw syscall round-trips, PTY throughput with and without vectored I/O, poller latency across idle fds, and macro-layer overhead against the imperative equivalents). `make clean` removes `.build` when build artifacts exist.
 
 ## Notes
 
