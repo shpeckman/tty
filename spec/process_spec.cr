@@ -61,4 +61,13 @@ describe TTY::PTY::Process do
     process.pty.close
     process.pty.closed?.should be_true
   end
+
+  it "recovers the status when the runtime reaps the child first" do
+    process = TTY::PTY.spawn("sh", ["-c", "exit 5"], env: {"PATH" => "/usr/bin:/bin"})
+    sleep 200.milliseconds
+    status = process.wait
+    status.exited?.should be_true
+    status.exit_status.should eq 5
+    process.close
+  end
 end

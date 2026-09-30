@@ -19,7 +19,7 @@ examples:
 bench:
 	@for bench in $(BENCH_SRC); do \
 		echo "==> $$bench"; \
-		$(CRYSTAL) run --release $$bench; \
+		$(CRYSTAL) run --release --no-debug --progress $$bench; \
 	done
 
 clean:

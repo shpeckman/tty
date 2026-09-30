@@ -44,10 +44,14 @@ describe TTY::PTY do
     String.new(buffer).should eq "xyz"
     master_io = pty.master_io
     IO::FileDescriptor.set_blocking(master_io.fd, false)
-    echo = Channel(Int32).new
+    echo = Channel(Int32).new(1)
     spawn do
       buf = Bytes.new(8)
-      echo.send(master_io.read(buf))
+      begin
+        echo.send(master_io.read(buf))
+      rescue IO::Error
+        echo.send(-1)
+      end
     end
     select
     when echo.receive

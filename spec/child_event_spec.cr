@@ -61,6 +61,17 @@ require "./spec_helper"
       process.close
     end
 
+    it "recovers the event when the runtime reaps the child first" do
+      process = TTY::PTY.spawn("sh", ["-c", "exit 7"], env: {"PATH" => "/usr/bin:/bin"})
+      sleep 200.milliseconds
+      event = process.wait_event
+      event.exited?.should be_true
+      event.exit_status.should eq(7)
+      event.terminal?.should be_true
+      process.wait.exit_status.should eq(7)
+      process.close
+    end
+
     it "reconstructs events from wait statuses" do
       exited = TTY::ChildEvent.from_wait_status(42, 3 << 8)
       exited.exited?.should be_true

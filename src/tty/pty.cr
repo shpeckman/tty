@@ -425,6 +425,7 @@ module TTY
     def initialize(@master_fd : Int32, @slave_fd : Int32, @slave_name : String)
       @eof_on_error = true
       @evented_io   = nil.as(IO?)
+      @adapters     = [] of Tuple(::IO::FileDescriptor, Int32)
     end
 
     def closed? : Bool
@@ -487,12 +488,16 @@ module TTY
 
     def master_io : ::IO::FileDescriptor
       raise Error.new("master fd is closed") if closed?
-      ::IO::FileDescriptor.new(@master_fd)
+      adapter = ::IO::FileDescriptor.new(@master_fd, close_on_finalize: false)
+      register_adapter(adapter, @master_fd)
+      adapter
     end
 
     def slave_io : ::IO::FileDescriptor
       raise Error.new("slave fd is closed") if @slave_fd < 0
-      ::IO::FileDescriptor.new(@slave_fd)
+      adapter = ::IO::FileDescriptor.new(@slave_fd, close_on_finalize: false)
+      register_adapter(adapter, @slave_fd)
+      adapter
     end
 
     def io : IO
@@ -575,6 +580,7 @@ module TTY
         io.close
         return
       end
+      close_adapters
       close_slave
       return if closed?
       Syscall.close(@master_fd)
@@ -591,7 +597,28 @@ module TTY
 
     protected def io_closed : Nil
       @master_fd = -1
+      close_adapters
       close_slave
+    end
+
+    private def register_adapter(adapter : ::IO::FileDescriptor, fd : Int32) : Nil
+      @adapters.reject! { |(kept, _)| kept.closed? }
+      @adapters << {adapter, fd}
+    end
+
+    private def close_adapters : Nil
+      @adapters.each do |(adapter, fd)|
+        unless adapter.closed?
+          begin
+            adapter.close
+          rescue ::IO::Error
+            nil
+          end
+        end
+        @master_fd = -1 if fd == @master_fd
+        @slave_fd  = -1 if fd == @slave_fd
+      end
+      @adapters.clear
     end
 
     private def effective_fd : Int32
@@ -649,8 +676,13 @@ module TTY
         if status = @status
           status
         else
-          _, raw_status = Syscall.wait4(@pid)
-          record_reap(raw_status)
+          begin
+            _, raw_status = Syscall.wait4(@pid)
+            record_reap(raw_status)
+          rescue ex : Syscall::Error
+            raise ex unless ex.errno == Syscall::ECHILD
+            recover_status || raise ex
+          end
         end
       end
 
@@ -665,11 +697,16 @@ module TTY
 
         remaining = timeout_ms
         loop do
-          result, raw_status = Syscall.wait4(@pid, Syscall::WNOHANG)
+          begin
+            result, raw_status = Syscall.wait4(@pid, Syscall::WNOHANG)
+          rescue ex : Syscall::Error
+            raise ex unless ex.errno == Syscall::ECHILD
+            return recover_status || raise ex
+          end
           return record_reap(raw_status) if result == @pid
           return nil if remaining <= 0
           step = remaining < 10 ? remaining : 10
-          Syscall.sleep_ms(step)
+          sleep step.milliseconds
           remaining -= step
         end
       end
@@ -700,7 +737,7 @@ module TTY
             return event if event
             return nil if remaining <= 0
             step = remaining < 10 ? remaining : 10
-            Syscall.sleep_ms(step)
+            sleep step.milliseconds
             remaining -= step
           end
         {% end %}
@@ -775,7 +812,12 @@ module TTY
         {% if flag?(:darwin) %}
           nil
         {% else %}
-          info = Syscall.waitid(Syscall::P_PID, @pid, options | Syscall::WNOWAIT)
+          info = begin
+            Syscall.waitid(Syscall::P_PID, @pid, options | Syscall::WNOWAIT)
+          rescue ex : Syscall::Error
+            raise ex unless ex.errno == Syscall::ECHILD
+            return recover_event || raise ex
+          end
           return nil if info.pid == 0
           event = ChildEvent.from_siginfo(info)
           unless event.terminal?
@@ -784,6 +826,34 @@ module TTY
           record_event(event)
           event
         {% end %}
+      end
+
+      private def recover_status : ChildStatus?
+        if status = @status
+          status
+        elsif raw_status = external_reap_status
+          record_reap(raw_status)
+        end
+      end
+
+      private def recover_event : ChildEvent?
+        if event = @last_event
+          return event if event.terminal?
+        end
+        if raw_status = external_reap_status
+          record_reap(raw_status)
+          @last_event
+        end
+      end
+
+      private def external_reap_status : Int32?
+        2.times do |attempt|
+          if raw_status = ::Crystal::System::SignalChildHandler.wait(@pid).receive?
+            return raw_status
+          end
+          Fiber.yield if attempt == 0
+        end
+        nil
       end
     end
 

@@ -351,6 +351,26 @@ TTY.on_resize(0) do |size|
 end
 ```
 
+## Concurrency
+
+The raw methods (`Syscall.*`, `PTY#read_master`, `PTY::Process#wait`, and friends) issue blocking syscalls directly. In the default single-threaded runtime a blocking syscall stalls every fiber on the thread until it returns:
+
+- Use `PTY::IO` (`PTY#io`) for master-side I/O; it reads and writes through the Crystal event loop and suspends only the calling fiber. It may be shared across fibers (stdlib `IO` synchronization applies).
+- Use `process.wait(timeout_ms)`, `process.wait_event(timeout_ms)`, and `PTY#wait_readable` to bound waits; the timed loops sleep fiber-locally, so other fibers keep running.
+- Under multithreading (`-Dpreview_mt` or additional execution contexts) blocking calls only stall their own thread.
+
+Ownership rules:
+
+- A `PTY`, `Poller`, or `PTY::Process` instance is not internally synchronized; have one fiber own it at a time, or add your own synchronization.
+- `PTY#close` closes the evented `PTY::IO` and any `master_io`/`slave_io` adapters, and closing those closes the PTY; a reader blocked in another fiber wakes with `IO::Error` ("Closed stream").
+- Never close an fd with `Syscall.close` while it is registered with the Crystal event loop (for example through `PTY::IO` or an adopted `IO::FileDescriptor`); close the `IO` instead. Closing the fd underneath the runtime leaves a stale event-loop registration that poisons the next fd to reuse the same number.
+
+Signal and child-reaping interplay with the runtime:
+
+- Crystal's runtime traps `SIGCHLD` globally and reaps terminated children with `waitpid(-1, WNOHANG)` whenever the scheduler switches fibers. `PTY::Process#wait` and `#wait_event` detect the resulting `ECHILD` and reclaim the status recorded by the runtime, so they still return the exact exit status. The status is only unrecoverable when the child is reaped outside both this shard and the runtime (for example by calling `waitpid` on the pid directly); waits then raise `Syscall::Error` with `ECHILD`.
+- `TTY.on_resize` and `Winsize.propagate` install `Signal::WINCH.trap` handlers that capture the given fd for the lifetime of the process. Trapping replaces any previous `SIGWINCH` handler (last registration wins), and the captured fd number must stay valid: once closed, a recycled fd with the same number receives the window-size writes.
+- `PTY.spawn`'s child path between `fork` and `execve` is allocation-free by design (raw `fork` skips the runtime's `at_fork` handlers). Keep it that way when modifying the spawn path: no heap allocation, no locks, and no stdlib calls before `execve`.
+
 ## Public API reference
 
 ### Top-level `TTY`
@@ -747,7 +767,7 @@ Property, default `true`: master reads after child exit report end-of-stream (`0
 Close only the slave fd.
 
 **`PTY#close : Nil`**  
-Idempotently close slave and master; closes the evented `PTY::IO` first when one exists.
+Idempotently close slave and master; closes the evented `PTY::IO` and any `master_io`/`slave_io` adapters first.
 
 **`PTY#locked? : Bool`**  
 Query PTY slave lock state. Linux-only.
@@ -762,7 +782,7 @@ Query packet mode. Linux-only.
 Read a packet-mode data or control packet.
 
 **`PTY#master_io`, `#slave_io`**  
-`IO::FileDescriptor` adapters.
+`IO::FileDescriptor` adapters with `close_on_finalize` disabled; closed by `PTY#close`.
 
 **`PTY#io : PTY::IO`**  
 Fiber-aware `IO` over the master, integrated with the Crystal event loop; one per PTY. See *Evented I/O*.
@@ -837,13 +857,13 @@ Child pid.
 Owned PTY.
 
 **`PTY::Process#wait : ChildStatus`**  
-Blocking wait; caches terminal status.
+Blocking wait; caches terminal status. Recovers the status when the runtime's `SIGCHLD` handling reaped the child first (see *Concurrency*).
 
 **`PTY::Process#wait(timeout_ms : Int32) : ChildStatus?`**  
 Timed wait; `nil` on timeout. Uses the pidfd when one is available.
 
 **`PTY::Process#wait_event : ChildEvent`**  
-Blocking Linux `waitid` event; composes with `wait` in either order. Linux-only.
+Blocking Linux `waitid` event; composes with `wait` in either order and recovers externally reaped children the same way. Linux-only.
 
 **`PTY::Process#wait_event(timeout_ms : Int32) : ChildEvent?`**  
 Timed Linux `waitid` event. Linux-only.
