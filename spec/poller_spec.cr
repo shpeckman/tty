@@ -43,4 +43,24 @@ describe TTY::Poller do
       TTY::Syscall.close(write_fd)
     end
   {% end %}
+
+  {% if flag?(:darwin) %}
+    it "uses kqueue as the Darwin default backend" do
+      read_fd, write_fd = TTY::FD.pipe
+      poller = TTY::Poller.new
+      poller.backend.should eq(TTY::PollerBackendKind::Kqueue)
+      poller.watch(read_fd, TTY::IOEvent::Readable)
+      poller.wait(0).should be_empty
+
+      TTY::Syscall.write(write_fd, "x")
+      events = poller.wait(1000)
+      events.size.should eq(1)
+      events[0].fd.should eq(read_fd)
+      events[0].readable?.should be_true
+
+      poller.close
+      TTY::Syscall.close(read_fd)
+      TTY::Syscall.close(write_fd)
+    end
+  {% end %}
 end

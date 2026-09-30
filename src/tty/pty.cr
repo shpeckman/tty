@@ -78,6 +78,17 @@ module TTY
       new(kind, info.pid, info.uid, info.status)
     end
 
+    def self.from_wait_status(pid : Int32, status : Int32) : ChildEvent
+      if status & 0x7f == 0
+        new(ChildEventKind::Exited, pid, 0_u32, (status >> 8) & 0xff)
+      elsif status & 0xff == 0x7f
+        new(ChildEventKind::Stopped, pid, 0_u32, (status >> 8) & 0xff)
+      else
+        kind = (status & 0x80) != 0 ? ChildEventKind::Dumped : ChildEventKind::Killed
+        new(kind, pid, 0_u32, status & 0x7f)
+      end
+    end
+
     def exited? : Bool
       kind == ChildEventKind::Exited
     end
@@ -144,7 +155,13 @@ module TTY
     property working_dir : String?
     property close_fds   : Bool
 
-    def initialize(@env : Hash(String, String) = ENV.to_h, @winsize : Winsize? = nil, @working_dir : String? = nil, @close_fds : Bool = true)
+    def initialize(@env : Hash(String, String) = SpawnOptions.default_env, @winsize : Winsize? = nil, @working_dir : String? = nil, @close_fds : Bool = true)
+    end
+
+    def self.default_env : Hash(String, String)
+      env = ENV.to_h
+      env["TERM"] ||= "xterm-256color"
+      env
     end
   end
 
@@ -203,6 +220,8 @@ module TTY
     getter slave_fd   : Int32
     getter slave_name : String
 
+    property eof_on_error : Bool
+
     def self.open : PTY
       master = Syscall.openat("/dev/ptmx", Syscall::O_RDWR | Syscall::O_NOCTTY | Syscall::O_CLOEXEC)
       begin
@@ -223,7 +242,7 @@ module TTY
             Syscall.ioctl_result(master, TIOCGPTPEER, flags)
           rescue ex : Syscall::Error
             case ex.errno
-            when 22, 25, Syscall::ENOSYS
+            when Syscall::EINVAL, Syscall::ENOTTY, Syscall::ENOSYS
               Syscall.openat(name, Syscall::O_RDWR | Syscall::O_NOCTTY | Syscall::O_CLOEXEC)
             else
               raise ex
@@ -241,7 +260,7 @@ module TTY
       end
     end
 
-    def self.spawn(command : String, args : Array(String) = [] of String, *, env : Hash(String, String) = ENV.to_h, winsize : Winsize? = nil, working_dir : String? = nil, close_fds : Bool = true) : Process
+    def self.spawn(command : String, args : Array(String) = [] of String, *, env : Hash(String, String) = SpawnOptions.default_env, winsize : Winsize? = nil, working_dir : String? = nil, close_fds : Bool = true) : Process
       spawn(command, args, SpawnOptions.new(env: env, winsize: winsize, working_dir: working_dir, close_fds: close_fds))
     end
 
@@ -311,7 +330,7 @@ module TTY
               error_fd = 3 if result >= 0
             end
             if failure == 0
-              result = Syscall.raw(Syscall::NR_CLOSE_RANGE, 4_i64, Int32::MAX.to_i64, 0_i64)
+              result = Syscall.close_fds_from(4_i32, error_fd)
               failure = result if result < 0
             end
           end
@@ -337,7 +356,7 @@ module TTY
         begin
           pidfd = Syscall.pidfd_open(pid)
         rescue ex : Syscall::Error
-          raise ex unless ex.errno == Syscall::ENOSYS || ex.errno == 22
+          raise ex unless ex.errno == Syscall::ENOSYS || ex.errno == Syscall::EINVAL
         end
       {% end %}
 
@@ -398,16 +417,14 @@ module TTY
       Process.new(pid, pty, pidfd)
     end
 
-    def self.spawn(command : String, args : Array(String), env : Hash(String, String), winsize : Winsize? = nil) : Process
-      spawn(command, args, SpawnOptions.new(env: env, winsize: winsize))
-    end
-
     def self.wait(pid : Int32) : ChildStatus
       _, status = Syscall.wait4(pid)
       ChildStatus.new(status)
     end
 
     def initialize(@master_fd : Int32, @slave_fd : Int32, @slave_name : String)
+      @eof_on_error = true
+      @evented_io   = nil.as(IO?)
     end
 
     def closed? : Bool
@@ -450,7 +467,12 @@ module TTY
       raise Error.new("master fd is closed") if closed?
       raise ArgumentError.new("buffer must not be empty") if buffer.empty?
       scratch = Bytes.new(buffer.size + 1)
-      count   = Syscall.read(@master_fd, scratch.to_unsafe, scratch.size)
+      count = begin
+        Syscall.read(@master_fd, scratch.to_unsafe, scratch.size)
+      rescue ex : Syscall::Error
+        return Packet.end_of_stream if @eof_on_error && ex.errno == Syscall::EIO
+        raise ex
+      end
       return Packet.end_of_stream if count == 0
 
       control = scratch[0]
@@ -463,14 +485,19 @@ module TTY
       end
     end
 
-    def master_io : IO::FileDescriptor
+    def master_io : ::IO::FileDescriptor
       raise Error.new("master fd is closed") if closed?
-      IO::FileDescriptor.new(@master_fd)
+      ::IO::FileDescriptor.new(@master_fd)
     end
 
-    def slave_io : IO::FileDescriptor
+    def slave_io : ::IO::FileDescriptor
       raise Error.new("slave fd is closed") if @slave_fd < 0
-      IO::FileDescriptor.new(@slave_fd)
+      ::IO::FileDescriptor.new(@slave_fd)
+    end
+
+    def io : IO
+      raise Error.new("master fd is closed") if closed?
+      IO.new(self)
     end
 
     def write_master(data : String) : Int32
@@ -484,7 +511,27 @@ module TTY
 
     def read_master(buffer : Bytes) : Int32
       raise Error.new("master fd is closed") if closed?
-      Syscall.read(@master_fd, buffer.to_unsafe, buffer.size)
+      begin
+        Syscall.read(@master_fd, buffer.to_unsafe, buffer.size)
+      rescue ex : Syscall::Error
+        return 0 if @eof_on_error && ex.errno == Syscall::EIO
+        raise ex
+      end
+    end
+
+    def read_master_v(buffers : Array(Bytes)) : Int32
+      raise Error.new("master fd is closed") if closed?
+      begin
+        FD.readv(@master_fd, buffers)
+      rescue ex : Syscall::Error
+        return 0 if @eof_on_error && ex.errno == Syscall::EIO
+        raise ex
+      end
+    end
+
+    def write_master_v(buffers : Array(Bytes)) : Int32
+      raise Error.new("master fd is closed") if closed?
+      FD.writev(@master_fd, buffers)
     end
 
     def read_slave(buffer : Bytes) : Int32
@@ -523,10 +570,28 @@ module TTY
     end
 
     def close : Nil
+      if io = @evented_io
+        @evented_io = nil
+        io.close
+        return
+      end
       close_slave
       return if closed?
       Syscall.close(@master_fd)
       @master_fd = -1
+    end
+
+    protected def evented_io? : Bool
+      !@evented_io.nil?
+    end
+
+    protected def evented_io=(io : IO) : Nil
+      @evented_io = io
+    end
+
+    protected def io_closed : Nil
+      @master_fd = -1
+      close_slave
     end
 
     private def effective_fd : Int32
@@ -585,7 +650,7 @@ module TTY
           status
         else
           _, raw_status = Syscall.wait4(@pid)
-          @status = ChildStatus.new(raw_status)
+          record_reap(raw_status)
         end
       end
 
@@ -593,13 +658,15 @@ module TTY
         raise ArgumentError.new("timeout_ms must be non-negative") if timeout_ms < 0
         return @status if @status
 
+        if fd = @pidfd
+          return nil unless TTY.wait_readable(fd, timeout_ms)
+          return wait
+        end
+
         remaining = timeout_ms
         loop do
           result, raw_status = Syscall.wait4(@pid, Syscall::WNOHANG)
-          if result == @pid
-            @status = ChildStatus.new(raw_status)
-            return @status
-          end
+          return record_reap(raw_status) if result == @pid
           return nil if remaining <= 0
           step = remaining < 10 ? remaining : 10
           Syscall.sleep_ms(step)
@@ -614,10 +681,7 @@ module TTY
           if event = @last_event
             return event if event.terminal?
           end
-          info = Syscall.waitid(Syscall::P_PID, @pid, Syscall::WEXITED | Syscall::WSTOPPED | Syscall::WCONTINUED)
-          event = ChildEvent.from_siginfo(info)
-          record_event(event)
-          event
+          wait_event_impl(Syscall::WEXITED | Syscall::WSTOPPED | Syscall::WCONTINUED).not_nil!
         {% end %}
       end
 
@@ -632,12 +696,8 @@ module TTY
 
           remaining = timeout_ms
           loop do
-            info = Syscall.waitid(Syscall::P_PID, @pid, Syscall::WEXITED | Syscall::WSTOPPED | Syscall::WCONTINUED | Syscall::WNOHANG)
-            if info.pid == @pid
-              event = ChildEvent.from_siginfo(info)
-              record_event(event)
-              return event
-            end
+            event = wait_event_impl(Syscall::WEXITED | Syscall::WSTOPPED | Syscall::WCONTINUED | Syscall::WNOHANG)
+            return event if event
             return nil if remaining <= 0
             step = remaining < 10 ? remaining : 10
             Syscall.sleep_ms(step)
@@ -693,7 +753,37 @@ module TTY
 
       private def record_event(event : ChildEvent) : Nil
         @last_event = event
-        @status     = ChildStatus.new(event.wait_status) if event.terminal?
+        return unless event.terminal?
+        begin
+          _, raw_status = Syscall.wait4(@pid)
+          @status = ChildStatus.new(raw_status)
+        rescue ex : Syscall::Error
+          @status = ChildStatus.new(event.wait_status)
+        end
+      end
+
+      private def record_reap(raw_status : Int32) : ChildStatus
+        status  = ChildStatus.new(raw_status)
+        @status = status
+        unless @last_event.try &.terminal?
+          @last_event = ChildEvent.from_wait_status(@pid, raw_status)
+        end
+        status
+      end
+
+      private def wait_event_impl(options : Int32) : ChildEvent?
+        {% if flag?(:darwin) %}
+          nil
+        {% else %}
+          info = Syscall.waitid(Syscall::P_PID, @pid, options | Syscall::WNOWAIT)
+          return nil if info.pid == 0
+          event = ChildEvent.from_siginfo(info)
+          unless event.terminal?
+            Syscall.waitid(Syscall::P_PID, @pid, Syscall::WEXITED | Syscall::WSTOPPED | Syscall::WCONTINUED)
+          end
+          record_event(event)
+          event
+        {% end %}
       end
     end
 

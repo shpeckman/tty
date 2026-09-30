@@ -29,4 +29,12 @@ describe "PTY.spawn reliability" do
     output.should contain("/")
     process.close
   end
+
+  it "provides a TERM fallback in the default child environment" do
+    expected = ENV["TERM"]? || "xterm-256color"
+    process  = TTY::PTY.spawn("sh", ["-c", "printf 'term=%s' \"$TERM\""])
+    read_until_eio(process.pty).should contain "term=#{expected}"
+    process.wait.success?.should be_true
+    process.close
+  end
 end

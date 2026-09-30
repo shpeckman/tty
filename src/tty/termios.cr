@@ -451,11 +451,9 @@ module TTY
     end
 
     def read_timeout : Time::Span?
-      if self[ControlChar::Min] == 1_u8 && self[ControlChar::Time] == 0_u8
-        nil
-      else
-        (self[ControlChar::Time].to_i * 100).milliseconds
-      end
+      deciseconds = self[ControlChar::Time]
+      return nil if deciseconds == 0
+      (deciseconds.to_i * 100).milliseconds
     end
 
     def make_raw : Nil

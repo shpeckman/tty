@@ -256,11 +256,17 @@ module TTY
       raw_events = Array(Kevent).new(max_events) { Kevent.new(0_u64, 0_i16, 0_u16) }
       timeout    = timeout_ms < 0 ? nil : KeventTimeout.new((timeout_ms // 1000).to_i64, ((timeout_ms % 1000) * 1_000_000).to_i64)
 
-      ready = if timeout
-                Syscall.kevent(@fd, Pointer(Void).null, 0, raw_events.to_unsafe.as(Pointer(Void)), max_events, pointerof(timeout).as(Pointer(Void)))
-              else
-                Syscall.kevent(@fd, Pointer(Void).null, 0, raw_events.to_unsafe.as(Pointer(Void)), max_events)
-              end
+      ready = loop do
+        begin
+          if timeout
+            break Syscall.kevent(@fd, Pointer(Void).null, 0, raw_events.to_unsafe.as(Pointer(Void)), max_events, pointerof(timeout).as(Pointer(Void)))
+          else
+            break Syscall.kevent(@fd, Pointer(Void).null, 0, raw_events.to_unsafe.as(Pointer(Void)), max_events)
+          end
+        rescue ex : Syscall::Error
+          raise ex unless ex.errno == Syscall::EINTR
+        end
+      end
       return [] of PollerEvent if ready == 0
 
       raw_events.first(ready).map do |event|

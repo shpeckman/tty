@@ -81,4 +81,34 @@ describe TTY::PTY do
       pty.close
     end
   {% end %}
+
+  it "transfers master data with vectored reads and writes" do
+    pty = TTY::PTY.open
+    pty.write_master_v(["he".to_slice, "llo\n".to_slice]).should eq(6)
+    first  = Bytes.new(2)
+    second = Bytes.new(8)
+    pty.wait_readable(1000).should be_true
+    read = pty.read_master_v([first, second])
+    read.should eq(7)
+    (String.new(first[0, 2]) + String.new(second[0, read - 2])).should eq("hello\r\n")
+    pty.close
+  end
+
+  it "returns zero on master reads after slave teardown" do
+    process = TTY::PTY.spawn("true", env: {"PATH" => "/usr/bin:/bin"})
+    process.wait
+    buffer = Bytes.new(16)
+    process.pty.read_master(buffer).should eq(0)
+    process.pty.read_master_v([buffer]).should eq(0)
+    process.close
+  end
+
+  it "still raises EIO on master reads when eof_on_error is disabled" do
+    process = TTY::PTY.spawn("true", env: {"PATH" => "/usr/bin:/bin"})
+    process.pty.eof_on_error = false
+    process.wait
+    buffer = Bytes.new(16)
+    expect_raises(TTY::Syscall::Error, /EIO/) { process.pty.read_master(buffer) }
+    process.close
+  end
 end

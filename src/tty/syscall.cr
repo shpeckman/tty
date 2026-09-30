@@ -37,6 +37,9 @@ module TTY::Syscall
 
     SIG_SETMASK = 3_i32
 
+    EAGAIN = 35_i32
+    ENOSYS = 78_i32
+
     @[Extern]
     struct Sigaction
       def initialize(@handler : UInt64, @mask : UInt32, @flags : Int32)
@@ -77,16 +80,30 @@ module TTY::Syscall
     NR_SOCKETPAIR        =  53_u64
     NR_RT_SIGACTION      =  13_u64
     NR_RT_SIGPROCMASK    =  14_u64
+    NR_SPLICE            = 275_u64
+    NR_TEE               = 276_u64
+    NR_GETDENTS64        = 217_u64
+    NR_COPY_FILE_RANGE   = 326_u64
 
     AT_FDCWD = -100_i64
 
-    O_RDWR     = 0o0000002_i64
-    O_NOCTTY   = 0o0000400_i64
-    O_NONBLOCK = 0o0004000_i64
-    O_CLOEXEC  = 0o2000000_i64
+    O_RDONLY    = 0o0000000_i64
+    O_RDWR      = 0o0000002_i64
+    O_NOCTTY    = 0o0000400_i64
+    O_NONBLOCK  = 0o0004000_i64
+    O_CLOEXEC   = 0o2000000_i64
+    O_DIRECTORY =  0o200000_i64
+
+    EAGAIN = 11_i32
+    ENOSYS = 38_i32
 
     SIG_SETMASK = 2_i32
     SIGSET_SIZE = 8_u64
+
+    SPLICE_F_MOVE     = 1_u32
+    SPLICE_F_NONBLOCK = 2_u32
+    SPLICE_F_MORE     = 4_u32
+    SPLICE_F_GIFT     = 8_u32
 
     @[Extern]
     struct Sigaction
@@ -121,12 +138,21 @@ module TTY::Syscall
   CLD_STOPPED   = 5_i32
   CLD_CONTINUED = 6_i32
 
+  EPERM  =  1_i32
+  ENOENT =  2_i32
   EINTR  =  4_i32
   EIO    =  5_i32
+  ENXIO  =  6_i32
   EBADF  =  9_i32
   ECHILD = 10_i32
-  EAGAIN = 11_i32
-  ENOSYS = 38_i32
+  ENOMEM = 12_i32
+  EACCES = 13_i32
+  EBUSY  = 16_i32
+  EEXIST = 17_i32
+  ENODEV = 19_i32
+  EINVAL = 22_i32
+  ENOTTY = 25_i32
+  EPIPE  = 32_i32
 
   AF_UNIX     = 1_i32
   SOCK_STREAM = 1_i32
@@ -166,22 +192,24 @@ module TTY::Syscall
 
     def self.errno_name_for(errno : Int32) : String
       case errno
-      when  1 then "EPERM"
-      when  2 then "ENOENT"
-      when  4 then "EINTR"
-      when  5 then "EIO"
-      when  6 then "ENXIO"
-      when  9 then "EBADF"
-      when 10 then "ECHILD"
-      when 11 then "EAGAIN"
-      when 12 then "ENOMEM"
-      when 13 then "EACCES"
-      when 16 then "EBUSY"
-      when 19 then "ENODEV"
-      when 22 then "EINVAL"
-      when 25 then "ENOTTY"
-      when 38 then "ENOSYS"
-      else         "ERRNO#{errno}"
+      when EPERM  then "EPERM"
+      when ENOENT then "ENOENT"
+      when EINTR  then "EINTR"
+      when EIO    then "EIO"
+      when ENXIO  then "ENXIO"
+      when EBADF  then "EBADF"
+      when ECHILD then "ECHILD"
+      when EAGAIN then "EAGAIN"
+      when ENOMEM then "ENOMEM"
+      when EACCES then "EACCES"
+      when EBUSY  then "EBUSY"
+      when EEXIST then "EEXIST"
+      when ENODEV then "ENODEV"
+      when EINVAL then "EINVAL"
+      when ENOTTY then "ENOTTY"
+      when EPIPE  then "EPIPE"
+      when ENOSYS then "ENOSYS"
+      else             "ERRNO#{errno}"
       end
     end
   end
@@ -471,6 +499,89 @@ module TTY::Syscall
     {% end %}
   end
 
+  def self.close_range_fallback?(errno : Int32) : Bool
+    errno == ENOSYS || errno == EPERM || errno == EINVAL
+  end
+
+  def self.close_fds_from(first : Int32, except : Int32) : Int64
+    {% if flag?(:darwin) %}
+      -ENOSYS.to_i64
+    {% else %}
+      result = raw(NR_CLOSE_RANGE, first.to_i64, Int32::MAX.to_i64, 0_i64)
+      return 0_i64 if result >= 0
+      return result unless close_range_fallback?(-result.to_i32)
+      close_fds_via_procfs(first, Int32::MAX, except)
+    {% end %}
+  end
+
+  def self.close_fds_via_procfs(first : Int32, last : Int32, except : Int32) : Int64
+    {% if flag?(:darwin) %}
+      -ENOSYS.to_i64
+    {% else %}
+      dir = raw(NR_OPENAT, AT_FDCWD, "/proc/self/fd".to_unsafe.address.to_i64, O_RDONLY | O_CLOEXEC | O_DIRECTORY)
+      return dir if dir < 0
+      dir_fd = dir.to_i32
+      buffer = uninitialized UInt8[2048]
+      failure = 0_i64
+      loop do
+        bytes = raw(NR_GETDENTS64, dir.to_i64, buffer.to_unsafe.address.to_i64, buffer.size.to_i64)
+        break if bytes <= 0
+        position = 0_i64
+        while position < bytes
+          record_length = (buffer.to_unsafe + position + 16).as(Pointer(UInt16)).value.to_i64
+          break if record_length == 0
+          name = buffer.to_unsafe + position + 19
+          fd = 0_i32
+          digits = false
+          while name.value >= 48_u8 && name.value <= 57_u8
+            fd = fd &* 10 &+ (name.value &- 48_u8).to_i32
+            digits = true
+            name += 1
+          end
+          if digits && fd >= first && fd <= last && fd != except && fd != dir_fd
+            result = raw(NR_CLOSE, fd.to_i64)
+            failure = result if failure == 0_i64 && result < 0
+          end
+          position += record_length
+        end
+      end
+      raw(NR_CLOSE, dir)
+      failure
+    {% end %}
+  end
+
+  def self.splice(fd_in : Int32, offset_in : Int64?, fd_out : Int32, offset_out : Int64?, count : Int, flags : UInt32 = 0_u32) : Int32
+    {% if flag?(:darwin) %}
+      raise TTY::Error.new("splice is Linux-only")
+    {% else %}
+      in_value = offset_in || 0_i64
+      out_value = offset_out || 0_i64
+      in_pointer = offset_in ? pointerof(in_value) : Pointer(Int64).null
+      out_pointer = offset_out ? pointerof(out_value) : Pointer(Int64).null
+      check(raw(NR_SPLICE, fd_in.to_i64, in_pointer.address.to_i64, fd_out.to_i64, out_pointer.address.to_i64, count.to_i64, flags.to_i64), operation: "splice").to_i32
+    {% end %}
+  end
+
+  def self.tee(fd_in : Int32, fd_out : Int32, count : Int, flags : UInt32 = 0_u32) : Int32
+    {% if flag?(:darwin) %}
+      raise TTY::Error.new("tee is Linux-only")
+    {% else %}
+      check(raw(NR_TEE, fd_in.to_i64, fd_out.to_i64, count.to_i64, flags.to_i64), operation: "tee").to_i32
+    {% end %}
+  end
+
+  def self.copy_file_range(fd_in : Int32, offset_in : Int64?, fd_out : Int32, offset_out : Int64?, count : Int, flags : UInt32 = 0_u32) : Int32
+    {% if flag?(:darwin) %}
+      raise TTY::Error.new("copy_file_range is Linux-only")
+    {% else %}
+      in_value = offset_in || 0_i64
+      out_value = offset_out || 0_i64
+      in_pointer = offset_in ? pointerof(in_value) : Pointer(Int64).null
+      out_pointer = offset_out ? pointerof(out_value) : Pointer(Int64).null
+      check(raw(NR_COPY_FILE_RANGE, fd_in.to_i64, in_pointer.address.to_i64, fd_out.to_i64, out_pointer.address.to_i64, count.to_i64, flags.to_i64), operation: "copy_file_range").to_i32
+    {% end %}
+  end
+
   def self.epoll_create1(flags : Int32 = 0_i32) : Int32
     {% if flag?(:darwin) %}
       raise TTY::Error.new("epoll is Linux-only")
@@ -516,21 +627,18 @@ module TTY::Syscall
   def self.reset_child_signal_state : Nil
     {% if flag?(:darwin) %}
       action = Sigaction.new(0_u64, 0_u32, 0_i32)
-    {% else %}
-      action = Sigaction.new(0_u64, 0_u64, 0_u64, 0_u64)
-    {% end %}
-    (1..31).each do |signal|
-      next if signal == SIGKILL || signal == SIGSTOP
-      {% if flag?(:darwin) %}
+      (1..31).each do |signal|
+        next if signal == SIGKILL || signal == SIGSTOP
         raw(NR_SIGACTION, signal.to_i64, pointerof(action).address.to_i64, 0_i64)
-      {% else %}
-        raw(NR_RT_SIGACTION, signal.to_i64, pointerof(action).address.to_i64, 0_i64, SIGSET_SIZE.to_i64)
-      {% end %}
-    end
-    {% if flag?(:darwin) %}
+      end
       mask = 0_u32
       raw(NR_SIGPROCMASK, SIG_SETMASK.to_i64, pointerof(mask).address.to_i64, 0_i64)
     {% else %}
+      action = Sigaction.new(0_u64, 0_u64, 0_u64, 0_u64)
+      (1..64).each do |signal|
+        next if signal == SIGKILL || signal == SIGSTOP || signal == 32 || signal == 33
+        raw(NR_RT_SIGACTION, signal.to_i64, pointerof(action).address.to_i64, 0_i64, SIGSET_SIZE.to_i64)
+      end
       mask = 0_u64
       raw(NR_RT_SIGPROCMASK, SIG_SETMASK.to_i64, pointerof(mask).address.to_i64, 0_i64, SIGSET_SIZE.to_i64)
     {% end %}

@@ -3,8 +3,13 @@ require "./platform"
 require "./syscall"
 
 module TTY::Session
-  def self.leader : Int32
+  def self.start : Int32
     Syscall.setsid
+  end
+
+  @[Deprecated("Use TTY::Session.start instead")]
+  def self.leader : Int32
+    start
   end
 
   def self.make_controlling(fd : Int32) : Nil

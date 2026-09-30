@@ -24,6 +24,16 @@ describe TTY::PTY::Process do
     process.close
   end
 
+  it "returns promptly from a timed wait on an exited child" do
+    process = TTY::PTY.spawn("sh", ["-c", "exit 5"], env: {"PATH" => "/usr/bin:/bin"})
+    started = Time.instant
+    status  = process.wait(5000)
+    (Time.instant - started).should be < 2.seconds
+    status.should_not be_nil
+    status.not_nil!.exit_status.should eq 5
+    process.close
+  end
+
   it "terminates a running child" do
     process = TTY::PTY.spawn("sleep", ["30"], env: {"PATH" => "/usr/bin:/bin"})
     process.terminate

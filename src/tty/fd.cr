@@ -55,7 +55,30 @@ module TTY::FD
   end
 
   def self.close_range(first : Int32, last : Int32 = Int32::MAX) : Nil
-    Syscall.close_range(first, last)
+    {% if flag?(:darwin) %}
+      raise Error.new("FD.close_range is Linux-only")
+    {% else %}
+      result = Syscall.raw(Syscall::NR_CLOSE_RANGE, first.to_i64, last.to_i64, 0_i64)
+      if result >= 0
+        nil
+      elsif Syscall.close_range_fallback?(-result.to_i32)
+        Syscall.check(Syscall.close_fds_via_procfs(first, last, -1), operation: "close_range")
+      else
+        Syscall.check(result, operation: "close_range")
+      end
+    {% end %}
+  end
+
+  def self.splice(from : Int32, to : Int32, count : Int, flags : UInt32 = 0_u32) : Int32
+    Syscall.splice(from, nil, to, nil, count, flags)
+  end
+
+  def self.tee(from : Int32, to : Int32, count : Int, flags : UInt32 = 0_u32) : Int32
+    Syscall.tee(from, to, count, flags)
+  end
+
+  def self.copy_file_range(from : Int32, to : Int32, count : Int) : Int32
+    Syscall.copy_file_range(from, nil, to, nil, count)
   end
 
   def self.stat(fd : Int32)

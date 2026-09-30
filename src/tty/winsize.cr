@@ -18,13 +18,25 @@ module TTY
       winsize
     end
 
+    def self.current(fd : Int32 = 0) : Winsize?
+      get(fd)
+    rescue ex : Syscall::Error
+      raise ex unless ex.errno == Syscall::ENOTTY
+      nil
+    end
+
+    def self.propagate(from_fd : Int32, to_fd : Int32) : Nil
+      current(from_fd).try &.set(to_fd)
+      TTY.on_resize(from_fd) { |size| size.set(to_fd) }
+    end
+
     def set(fd : Int32) : Nil
       copy = self
       Syscall.ioctl(fd, TIOCSWINSZ, pointerof(copy))
     end
   end
 
-  def self.on_resize(fd : Int32, & : Winsize ->) : Nil
-    Signal::WINCH.trap { yield Winsize.get(fd) }
+  def self.on_resize(fd : Int32, &block : Winsize ->) : Nil
+    Signal::WINCH.trap { block.call Winsize.get(fd) }
   end
 end

@@ -41,5 +41,42 @@ require "./spec_helper"
       killed.term_signal.should eq(TTY::Syscall::SIGKILL)
       process.close
     end
+
+    it "composes with wait when the event is observed first" do
+      process = TTY::PTY.spawn("sh", ["-c", "exit 9"], env: {"PATH" => "/usr/bin:/bin"})
+      event = process.wait_event
+      event.exited?.should be_true
+      process.wait.exit_status.should eq(9)
+      process.status.not_nil!.exit_status.should eq(9)
+      process.close
+    end
+
+    it "composes with wait when the status is observed first" do
+      process = TTY::PTY.spawn("sh", ["-c", "exit 4"], env: {"PATH" => "/usr/bin:/bin"})
+      process.wait.exit_status.should eq(4)
+      event = process.wait_event
+      event.exited?.should be_true
+      event.exit_status.should eq(4)
+      event.terminal?.should be_true
+      process.close
+    end
+
+    it "reconstructs events from wait statuses" do
+      exited = TTY::ChildEvent.from_wait_status(42, 3 << 8)
+      exited.exited?.should be_true
+      exited.exit_status.should eq(3)
+
+      killed = TTY::ChildEvent.from_wait_status(42, 9)
+      killed.signaled?.should be_true
+      killed.term_signal.should eq(9)
+
+      dumped = TTY::ChildEvent.from_wait_status(42, 9 | 0x80)
+      dumped.core_dumped?.should be_true
+      dumped.term_signal.should eq(9)
+
+      stopped = TTY::ChildEvent.from_wait_status(42, 0x7f | (19 << 8))
+      stopped.stopped?.should be_true
+      stopped.stop_signal.should eq(19)
+    end
   end
 {% end %}

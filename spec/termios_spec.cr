@@ -83,6 +83,13 @@ describe TTY::Termios do
     termios.read_timeout.should be_nil
   end
 
+  it "treats a zero VTIME as no timeout regardless of VMIN" do
+    termios = TTY::Termios.new
+    termios[TTY::ControlChar::Min] = 5_u8
+    termios[TTY::ControlChar::Time] = 0_u8
+    termios.read_timeout.should be_nil
+  end
+
   it "times out a raw-mode read after VTIME" do
     pty     = TTY::PTY.open
     termios = pty.termios
