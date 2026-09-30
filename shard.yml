@@ -3,8 +3,14 @@ name: tty
 version: 0.6.0
 
 authors:
-  - tty contributors
+  - shpeckman
 
+repository: "https://github.com/shpeckman/tty"
+
+description: |
+  `tty` is a Crystal shard for Unix terminals and pseudo-terminals. 
+  It provides termios control, window size handling, terminal/session ioctls, readiness waits, PTY allocation, packet mode, process lifecycle management, pidfds, and event polling on top of a raw-syscall core.
+  
 crystal: ">= 1.10.0"
 
 license: MIT
