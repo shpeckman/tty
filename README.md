@@ -32,10 +32,6 @@
 - Linux for the complete feature set
 - macOS for the compile-gated best-effort backend
 
-Linux is the primary target and receives the complete runtime coverage. The macOS backend includes direct-syscall and `kqueue` paths, but direct kernel syscall compatibility on macOS is best-effort. Linux-only APIs are unavailable or raise `TTY::Error` on Darwin.
-
-The shard itself does not require a C compiler or a postinstall build.
-
 ## Installation
 
 Add the dependency to your `shard.yml`:
