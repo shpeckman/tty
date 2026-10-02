@@ -1,4 +1,4 @@
-# benchmarks/pty_throughput.cr
+# bench/pty_throughput.cr
 require "benchmark"
 require "../src/tty"
 

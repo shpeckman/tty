@@ -1,4 +1,4 @@
-# benchmarks/macro.cr
+# bench/macro.cr
 require "benchmark"
 require "../src/tty"
 

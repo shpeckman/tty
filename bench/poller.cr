@@ -1,4 +1,4 @@
-# benchmarks/poller.cr
+# bench/poller.cr
 require "benchmark"
 require "../src/tty"
 

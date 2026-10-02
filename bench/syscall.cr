@@ -1,4 +1,4 @@
-# benchmarks/syscall.cr
+# bench/syscall.cr
 require "benchmark"
 require "../src/tty"
 
