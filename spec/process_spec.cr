@@ -71,3 +71,37 @@ describe TTY::PTY::Process do
     process.close
   end
 end
+
+describe "TTY::PTY::Process#interact" do
+  it "relays piped input to the child and child output back" do
+    input_read, input_write = IO.pipe
+    output = IO::Memory.new
+    flags   = TTY::FD.status_flags(input_read)
+    process = TTY::PTY.spawn("sh", ["-c", "read line; echo \"got $line\""])
+    input_write.puts "ping"
+    status = process.interact(input_read, output)
+    status.success?.should be_true
+    output.to_s.should contain("got ping")
+    TTY::FD.status_flags(input_read).should eq(flags)
+    process.close
+    input_read.close
+    input_write.close
+  end
+
+  it "puts a terminal input into raw mode, mirrors its size and restores it" do
+    outer = TTY::PTY.open
+    outer.winsize = TTY::Winsize.new(rows: 21_u16, cols: 73_u16)
+    terminal = outer.slave_io
+    before   = TTY.termios(terminal)
+    output   = IO::Memory.new
+    process  = TTY::PTY.spawn("sh", ["-c", "stty size; read line; echo \"got $line\""])
+    outer.write_master("pong\r")
+    status = process.interact(terminal, output)
+    status.success?.should be_true
+    output.to_s.should contain("21 73")
+    output.to_s.should contain("got pong")
+    TTY.termios(terminal).local.should eq(before.local)
+    process.close
+    outer.close
+  end
+end

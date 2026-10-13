@@ -1,4 +1,5 @@
 # src/tty/control.cr
+require "./conversions"
 require "./platform"
 require "./syscall"
 
@@ -51,99 +52,99 @@ module TTY
     end
   end
 
-  def self.pending_input(fd : Int32) : Int32
+  def self.pending_input(fd : Descriptor) : Int32
     count = 0_i32
-    Syscall.ioctl(fd, TIOCINQ, pointerof(count))
+    Syscall.ioctl(fd_of(fd), TIOCINQ, pointerof(count))
     count
   end
 
-  def self.pending_output(fd : Int32) : Int32
+  def self.pending_output(fd : Descriptor) : Int32
     count = 0_i32
-    Syscall.ioctl(fd, TIOCOUTQ, pointerof(count))
+    Syscall.ioctl(fd_of(fd), TIOCOUTQ, pointerof(count))
     count
   end
 
-  def self.inject(fd : Int32, byte : UInt8) : Nil
-    Syscall.ioctl(fd, TIOCSTI, pointerof(byte))
+  def self.inject(fd : Descriptor, byte : UInt8) : Nil
+    Syscall.ioctl(fd_of(fd), TIOCSTI, pointerof(byte))
   end
 
-  def self.send_break(fd : Int32) : Nil
-    Syscall.ioctl(fd, TIOCSBRK, 0)
+  def self.send_break(fd : Descriptor) : Nil
+    Syscall.ioctl(fd_of(fd), TIOCSBRK, 0)
   end
 
-  def self.clear_break(fd : Int32) : Nil
-    Syscall.ioctl(fd, TIOCCBRK, 0)
+  def self.clear_break(fd : Descriptor) : Nil
+    Syscall.ioctl(fd_of(fd), TIOCCBRK, 0)
   end
 
-  def self.drain(fd : Int32) : Nil
+  def self.drain(fd : Descriptor) : Nil
     {% if flag?(:darwin) %}
-      Syscall.ioctl(fd, TIOCDRAIN, 0)
+      Syscall.ioctl(fd_of(fd), TIOCDRAIN, 0)
     {% else %}
-      Syscall.ioctl(fd, TCSBRK, 1)
+      Syscall.ioctl(fd_of(fd), TCSBRK, 1)
     {% end %}
   end
 
-  def self.flow_control(fd : Int32, action : FlowAction) : Nil
+  def self.flow_control(fd : Descriptor, action : FlowAction) : Nil
     {% if flag?(:darwin) %}
-      raise Error.new("TTY.flow_control is Linux-only")
+      {% raise "TTY.flow_control is Linux-only" %}
     {% else %}
-      Syscall.ioctl(fd, TCXONC, action.value)
+      Syscall.ioctl(fd_of(fd), TCXONC, action.value)
     {% end %}
   end
 
-  def self.modem_status(fd : Int32) : ModemLine
+  def self.modem_status(fd : Descriptor) : ModemLine
     bits = 0_i32
-    Syscall.ioctl(fd, TIOCMGET, pointerof(bits))
+    Syscall.ioctl(fd_of(fd), TIOCMGET, pointerof(bits))
     ModemLine.new(bits)
   end
 
-  def self.set_modem_status(fd : Int32, lines : ModemLine) : Nil
+  def self.set_modem_status(fd : Descriptor, lines : ModemLine) : Nil
     bits = lines.value
-    Syscall.ioctl(fd, TIOCMSET, pointerof(bits))
+    Syscall.ioctl(fd_of(fd), TIOCMSET, pointerof(bits))
   end
 
-  def self.set_modem_lines(fd : Int32, lines : ModemLine) : Nil
+  def self.set_modem_lines(fd : Descriptor, lines : ModemLine) : Nil
     {% if flag?(:darwin) %}
-      raise Error.new("TTY.set_modem_lines is Linux-only")
+      {% raise "TTY.set_modem_lines is Linux-only" %}
     {% else %}
       bits = lines.value
-      Syscall.ioctl(fd, TIOCMBIS, pointerof(bits))
+      Syscall.ioctl(fd_of(fd), TIOCMBIS, pointerof(bits))
     {% end %}
   end
 
-  def self.clear_modem_lines(fd : Int32, lines : ModemLine) : Nil
+  def self.clear_modem_lines(fd : Descriptor, lines : ModemLine) : Nil
     {% if flag?(:darwin) %}
-      raise Error.new("TTY.clear_modem_lines is Linux-only")
+      {% raise "TTY.clear_modem_lines is Linux-only" %}
     {% else %}
       bits = lines.value
-      Syscall.ioctl(fd, TIOCMBIC, pointerof(bits))
+      Syscall.ioctl(fd_of(fd), TIOCMBIC, pointerof(bits))
     {% end %}
   end
 
-  def self.wait_modem(fd : Int32, lines : ModemLine) : Nil
+  def self.wait_modem(fd : Descriptor, lines : ModemLine) : Nil
     {% if flag?(:darwin) %}
-      raise Error.new("TTY.wait_modem is Linux-only")
+      {% raise "TTY.wait_modem is Linux-only" %}
     {% else %}
-      Syscall.ioctl(fd, TIOCMIWAIT, lines.value.to_u64)
+      Syscall.ioctl(fd_of(fd), TIOCMIWAIT, lines.value.to_u64)
     {% end %}
   end
 
-  def self.serial_icount(fd : Int32) : SerialICount
+  def self.serial_icount(fd : Descriptor) : SerialICount
     {% if flag?(:darwin) %}
-      raise Error.new("TTY.serial_icount is Linux-only")
+      {% raise "TTY.serial_icount is Linux-only" %}
     {% else %}
       counts = SerialICount.new
-      Syscall.ioctl(fd, TIOCGICOUNT, pointerof(counts))
+      Syscall.ioctl(fd_of(fd), TIOCGICOUNT, pointerof(counts))
       counts
     {% end %}
   end
 
-  def self.output_empty?(fd : Int32) : Bool
+  def self.output_empty?(fd : Descriptor) : Bool
     {% if flag?(:darwin) %}
-      raise Error.new("TTY.output_empty? is Linux-only")
+      {% raise "TTY.output_empty? is Linux-only" %}
     {% else %}
       status = 0_i32
-      Syscall.ioctl(fd, TIOCSERGETLSR, pointerof(status))
+      Syscall.ioctl(fd_of(fd), TIOCSERGETLSR, pointerof(status))
       (status & 0x1) != 0
     {% end %}
   end

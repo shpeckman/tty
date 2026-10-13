@@ -66,3 +66,83 @@ describe TTY::PTY::IO do
     process.close
   end
 end
+
+describe "PTY::IO conveniences" do
+  it "writes unbuffered by default" do
+    process = TTY::PTY.spawn("cat")
+    io      = process.io
+    io.sync?.should be_true
+    io.print "no-flush\n"
+    io.expect("no-flush", timeout: 2.seconds)
+    process.terminate
+    process.wait
+    process.close
+  end
+
+  it "returns the same evented IO on repeated access" do
+    pty = TTY::PTY.open
+    pty.io.should be(pty.io)
+    pty.close
+  end
+
+  it "expects patterns and keeps unconsumed output for later reads" do
+    process = TTY::PTY.spawn("sh", ["-c", "printf 'login: '; read name; echo \"hello $name\"; echo after"])
+    match = process.expect(/login: /, timeout: 2.seconds)
+    match[0].should eq("login: ")
+    process.send_line("crystal")
+    process.expect("hello crystal", timeout: 2.seconds).pre_match.should contain("crystal")
+    process.gets.should eq("")
+    process.gets.should eq("after")
+    process.wait.success?.should be_true
+    process.close
+  end
+
+  it "returns capture groups" do
+    process = TTY::PTY.spawn("sh", ["-c", "echo 'version 1.2.3'"])
+    match = process.expect(/version (\d+)\.(\d+)/, timeout: 2000)
+    match[1].should eq("1")
+    match[2].should eq("2")
+    process.gets.should eq(".3")
+    process.wait
+    process.close
+  end
+
+  it "raises a timeout and preserves the received bytes" do
+    process = TTY::PTY.spawn("sh", ["-c", "printf partial; sleep 5"])
+    expect_raises(IO::TimeoutError) { process.expect("never", timeout: 300.milliseconds) }
+    process.expect("partial", timeout: 1.second)
+    process.kill
+    process.wait
+    process.close
+  end
+
+  it "raises end of stream when the child exits first" do
+    process = TTY::PTY.spawn("sh", ["-c", "echo bye"])
+    expect_raises(IO::EOFError) { process.expect("never", timeout: 2.seconds) }
+    process.gets.should eq("bye")
+    process.wait
+    process.close
+  end
+
+  it "matches across invalid UTF-8 bytes" do
+    process = TTY::PTY.spawn("sh", ["-c", "printf '\\377\\376marker'"])
+    process.expect("marker", timeout: 2.seconds)[0].should eq("marker")
+    process.wait
+    process.close
+  end
+end
+
+describe TTY::PTY::Process do
+  it "acts as an IO over the child" do
+    process = TTY::PTY.spawn("cat")
+    process.puts "line"
+    process.gets.should eq("line")
+    process.gets.should eq("line")
+    process.flush
+    process.terminate
+    process.wait
+    process.close
+    process.closed?.should be_true
+    expect_raises(IO::Error, "Closed stream") { process.gets }
+  end
+end

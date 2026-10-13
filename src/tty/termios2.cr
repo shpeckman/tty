@@ -1,4 +1,5 @@
 # src/tty/termios2.cr
+require "./conversions"
 require "./platform"
 require "./syscall"
 require "./termios"
@@ -25,9 +26,9 @@ require "./termios"
       @ospeed = 0_u32
     end
 
-    def self.get(fd : Int32) : Termios2
+    def self.get(fd : Descriptor) : Termios2
       termios = new
-      Syscall.ioctl(fd, TCGETS2, pointerof(termios))
+      Syscall.ioctl(TTY.fd_of(fd), TCGETS2, pointerof(termios))
       termios
     end
 
@@ -42,14 +43,14 @@ require "./termios"
       copy
     end
 
-    def set(fd : Int32, action : SetAction = SetAction::Now) : Nil
+    def set(fd : Descriptor, action : SetAction = SetAction::Now) : Nil
       request = case action
                 in SetAction::Now   then TCSETS2
                 in SetAction::Drain then TCSETS2 + 1_u64
                 in SetAction::Flush then TCSETS2 + 2_u64
                 end
       copy = self
-      Syscall.ioctl(fd, request, pointerof(copy))
+      Syscall.ioctl(TTY.fd_of(fd), request, pointerof(copy))
     end
 
     def input : InputFlag

@@ -136,3 +136,42 @@ end
     end
   end
 {% end %}
+
+describe "TTY::Termios conveniences" do
+  it "returns raw and cbreak copies without mutating the receiver" do
+    termios = TTY::Termios.new
+    termios.local = TTY::LocalFlag::Echo | TTY::LocalFlag::ICanon | TTY::LocalFlag::ISig
+    raw = termios.raw
+    raw.local.should eq(TTY::LocalFlag::None)
+    termios.local.includes?(TTY::LocalFlag::ICanon).should be_true
+    cbreak = termios.cbreak
+    cbreak.canonical?.should be_false
+    cbreak.echo?.should be_false
+    cbreak.signals?.should be_true
+  end
+
+  it "toggles echo, canonical and signals" do
+    termios = TTY::Termios.new
+    termios.echo?.should be_false
+    termios.echo = true
+    termios.echo?.should be_true
+    termios.canonical = true
+    termios.signals = true
+    termios.local.should eq(TTY::LocalFlag::Echo | TTY::LocalFlag::ICanon | TTY::LocalFlag::ISig)
+    termios.echo = false
+    termios.local.should eq(TTY::LocalFlag::ICanon | TTY::LocalFlag::ISig)
+  end
+
+  it "modifies terminal attributes in one call" do
+    pty = TTY::PTY.open
+    applied = TTY.modify_termios(pty.slave_fd) do |termios|
+      termios.echo = false
+      termios
+    end
+    applied.echo?.should be_false
+    pty.termios.echo?.should be_false
+    pty.modify_termios(&.raw).canonical?.should be_false
+    pty.termios.canonical?.should be_false
+    pty.close
+  end
+end

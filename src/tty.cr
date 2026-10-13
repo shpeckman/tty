@@ -1,5 +1,6 @@
 # src/tty.cr
 require "./tty/error"
+require "./tty/conversions"
 require "./tty/platform"
 require "./tty/syscall"
 require "./tty/fd"
@@ -15,67 +16,52 @@ require "./tty/io"
 require "./tty/macros"
 
 module TTY
-  def self.termios(fd : Int32) : Termios
+  def self.termios(fd : Descriptor) : Termios
     Termios.get(fd)
   end
 
-  def self.termios(io : IO::FileDescriptor) : Termios
-    Termios.get(io.fd)
-  end
-
-  def self.winsize(fd : Int32) : Winsize
+  def self.winsize(fd : Descriptor) : Winsize
     Winsize.get(fd)
   end
 
-  def self.winsize(io : IO::FileDescriptor) : Winsize
-    Winsize.get(io.fd)
-  end
-
-  def self.nonblocking?(fd : Int32) : Bool
+  def self.nonblocking?(fd : Descriptor) : Bool
     FD.nonblocking?(fd)
   end
 
-  def self.set_nonblocking(fd : Int32, enabled : Bool = true) : Nil
+  def self.set_nonblocking(fd : Descriptor, enabled : Bool = true) : Nil
     FD.set_nonblocking(fd, enabled)
   end
 
-  def self.cloexec?(fd : Int32) : Bool
+  def self.cloexec?(fd : Descriptor) : Bool
     FD.cloexec?(fd)
   end
 
-  def self.set_cloexec(fd : Int32, enabled : Bool = true) : Nil
+  def self.set_cloexec(fd : Descriptor, enabled : Bool = true) : Nil
     FD.set_cloexec(fd, enabled)
   end
 
-  def self.raw(fd : Int32, action : SetAction = SetAction::Now, & : -> U) : U forall U
+  def self.raw(fd : Descriptor, action : SetAction = SetAction::Now, & : -> U) : U forall U
     original = Termios.get(fd)
-    termios  = original
-    termios.make_raw
+    scoped_termios(fd, original, original.raw, action) { yield }
+  end
+
+  def self.cbreak(fd : Descriptor, action : SetAction = SetAction::Now, & : -> U) : U forall U
+    original = Termios.get(fd)
+    scoped_termios(fd, original, original.cbreak, action) { yield }
+  end
+
+  def self.modify_termios(fd : Descriptor, action : SetAction = SetAction::Now, & : Termios -> Termios) : Termios
+    termios = yield Termios.get(fd)
     termios.set(fd, action)
+    termios
+  end
+
+  private def self.scoped_termios(fd : Descriptor, original : Termios, configured : Termios, action : SetAction, & : -> U) : U forall U
+    configured.set(fd, action)
     begin
       yield
     ensure
       original.set(fd)
     end
-  end
-
-  def self.raw(io : IO::FileDescriptor, action : SetAction = SetAction::Now, & : -> U) : U forall U
-    raw(io.fd, action) { yield }
-  end
-
-  def self.cbreak(fd : Int32, action : SetAction = SetAction::Now, & : -> U) : U forall U
-    original = Termios.get(fd)
-    termios  = original
-    termios.make_cbreak
-    termios.set(fd, action)
-    begin
-      yield
-    ensure
-      original.set(fd)
-    end
-  end
-
-  def self.cbreak(io : IO::FileDescriptor, action : SetAction = SetAction::Now, & : -> U) : U forall U
-    cbreak(io.fd, action) { yield }
   end
 end

@@ -1,4 +1,5 @@
 # src/tty/poller.cr
+require "./conversions"
 require "./fd"
 require "./readiness"
 require "./syscall"
@@ -94,6 +95,7 @@ module TTY
     end
   end
 
+  {% unless flag?(:darwin) %}
   @[Extern]
   struct EpollEvent
     getter events  : UInt32
@@ -113,12 +115,7 @@ module TTY
 
     def initialize
       @watched = Hash(Int32, IOEvent).new
-      @fd      = -1
-      {% if flag?(:darwin) %}
-        raise Error.new("epoll is Linux-only")
-      {% else %}
-        @fd = Syscall.epoll_create1(Syscall::O_CLOEXEC.to_i32)
-      {% end %}
+      @fd      = Syscall.epoll_create1(Syscall::O_CLOEXEC.to_i32)
     end
 
     def watch(fd : Int32, events : IOEvent) : Nil
@@ -184,7 +181,9 @@ module TTY
       events
     end
   end
+  {% end %}
 
+  {% if flag?(:darwin) %}
   @[Extern]
   struct Kevent
     getter ident  : UInt64
@@ -214,12 +213,7 @@ module TTY
 
     def initialize
       @watched = Hash(Int32, IOEvent).new
-      @fd      = -1
-      {% if flag?(:darwin) %}
-        @fd = Syscall.kqueue
-      {% else %}
-        raise Error.new("kqueue is Darwin-only")
-      {% end %}
+      @fd      = Syscall.kqueue
     end
 
     def watch(fd : Int32, events : IOEvent) : Nil
@@ -302,9 +296,12 @@ module TTY
       Syscall.kevent(@fd, changes.to_unsafe.as(Pointer(Void)), changes.size, Pointer(Void).null, 0)
     end
   end
+  {% end %}
 
   class Poller
     getter backend : PollerBackendKind
+
+    @implementation : PollerImplementation
 
     def initialize(backend : PollerBackendKind = PollerBackendKind::Auto)
       @backend = backend == PollerBackendKind::Auto ? self.class.default_backend : backend
@@ -312,9 +309,17 @@ module TTY
                         in PollerBackendKind::Poll
                           PollPoller.new
                         in PollerBackendKind::Epoll
-                          EpollPoller.new
+                          {% if flag?(:darwin) %}
+                            raise Error.new("epoll is Linux-only")
+                          {% else %}
+                            EpollPoller.new
+                          {% end %}
                         in PollerBackendKind::Kqueue
-                          KqueuePoller.new
+                          {% if flag?(:darwin) %}
+                            KqueuePoller.new
+                          {% else %}
+                            raise Error.new("kqueue is Darwin-only")
+                          {% end %}
                         in PollerBackendKind::Auto
                           raise Error.new("unresolved poller backend")
                         end
@@ -332,16 +337,16 @@ module TTY
       new(PollerBackendKind::Poll)
     end
 
-    def watch(fd : Int32, events : IOEvent) : Nil
-      @implementation.watch(fd, events)
+    def watch(fd : Descriptor, events : IOEvent) : Nil
+      @implementation.watch(TTY.fd_of(fd), events)
     end
 
-    def unwatch(fd : Int32) : Nil
-      @implementation.unwatch(fd)
+    def unwatch(fd : Descriptor) : Nil
+      @implementation.unwatch(TTY.fd_of(fd))
     end
 
-    def wait(timeout_ms : Int32 = -1) : Array(PollerEvent)
-      @implementation.wait(timeout_ms)
+    def wait(timeout : Timeout = nil) : Array(PollerEvent)
+      @implementation.wait(TTY.timeout_ms(timeout))
     end
 
     def close : Nil

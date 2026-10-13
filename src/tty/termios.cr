@@ -1,4 +1,5 @@
 # src/tty/termios.cr
+require "./conversions"
 require "./platform"
 require "./syscall"
 
@@ -21,11 +22,11 @@ module TTY
     {% end %}
   end
 
-  def self.flush(fd : Int32, queue : FlushQueue = FlushQueue::Both) : Nil
+  def self.flush(fd : Descriptor, queue : FlushQueue = FlushQueue::Both) : Nil
     {% if flag?(:darwin) %}
-      Syscall.ioctl(fd, TIOCFLUSH, queue.value)
+      Syscall.ioctl(fd_of(fd), TIOCFLUSH, queue.value)
     {% else %}
-      Syscall.ioctl(fd, TCFLSH, queue.value)
+      Syscall.ioctl(fd_of(fd), TCFLSH, queue.value)
     {% end %}
   end
 
@@ -323,15 +324,40 @@ module TTY
       end
     {% end %}
 
-    def self.get(fd : Int32) : Termios
+    SWITCHES = {echo: LocalFlag::Echo, canonical: LocalFlag::ICanon, signals: LocalFlag::ISig}
+
+    def self.get(fd : Descriptor) : Termios
       termios = new
-      Syscall.ioctl(fd, TCGETS, pointerof(termios))
+      Syscall.ioctl(TTY.fd_of(fd), TCGETS, pointerof(termios))
       termios
     end
 
-    def set(fd : Int32, action : SetAction = SetAction::Now) : Nil
+    def set(fd : Descriptor, action : SetAction = SetAction::Now) : Nil
       copy = self
-      Syscall.ioctl(fd, action.value, pointerof(copy))
+      Syscall.ioctl(TTY.fd_of(fd), action.value, pointerof(copy))
+    end
+
+    {% for name, flag in TTY::Termios::SWITCHES %}
+      def {{name.id}}? : Bool
+        local.includes?({{flag}})
+      end
+
+      def {{name.id}}=(enabled : Bool) : Bool
+        self.local = enabled ? local | {{flag}} : local & ~{{flag}}
+        enabled
+      end
+    {% end %}
+
+    def raw : Termios
+      copy = self
+      copy.make_raw
+      copy
+    end
+
+    def cbreak : Termios
+      copy = self
+      copy.make_cbreak
+      copy
     end
 
     def input : InputFlag
