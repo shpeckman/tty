@@ -341,9 +341,9 @@ module TTY::Syscall
     {% end %}
     def self.{{name.id}}({% for argument, index in args %}{{argument}}{% if index < args.size - 1 %}, {% end %}{% end %}) : {{returns}}{% if generic %} forall {{generic}}{% end %}
       {% if linux_only && flag?(:darwin) %}
-        raise TTY::Error.new({{name.id.stringify + " is Linux-only"}})
+        \{% raise {{"TTY::Syscall." + name.id.stringify + " is Linux-only"}} %}
       {% elsif darwin_only && !flag?(:darwin) %}
-        raise TTY::Error.new({{name.id.stringify + " is Darwin-only"}})
+        \{% raise {{"TTY::Syscall." + name.id.stringify + " is Darwin-only"}} %}
       {% else %}
         {% if returns.stringify == "Nil" %}
           check(raw({{nr}}{% for argument in args %}, arg({{argument.var}}){% end %}), operation: {{operation}}{% if fd_report %}, fd: {{fd_report}}{% end %}{% if path %}, path: {{path}}{% end %}{% if request %}, request: {{request}}{% end %})
@@ -376,7 +376,7 @@ module TTY::Syscall
 
   def self.fstat(fd : Int32)
     {% if flag?(:darwin) %}
-      raise TTY::Error.new("fstat is not implemented by the Darwin syscall backend")
+      {% raise "TTY::Syscall.fstat is Linux-only" %}
     {% else %}
       stat = Stat.new
       check(raw(NR_FSTAT, fd.to_i64, pointerof(stat).address.to_i64), operation: "fstat", fd: fd)
@@ -447,7 +447,7 @@ module TTY::Syscall
 
   def self.waitid(id_type : Int32, id : Int32, options : Int32)
     {% if flag?(:darwin) %}
-      raise TTY::Error.new("waitid is not implemented by the Darwin syscall backend")
+      {% raise "TTY::Syscall.waitid is Linux-only" %}
     {% else %}
       info = Siginfo.new
       check(raw(NR_WAITID, id_type.to_i64, id.to_i64, pointerof(info).address.to_i64, options.to_i64, Pointer(Void).null.address.to_i64), operation: "waitid")
@@ -459,7 +459,7 @@ module TTY::Syscall
 
   def self.pidfd_send_signal(pidfd : Int32, signal : Int32, flags : UInt32 = 0_u32) : Nil
     {% if flag?(:darwin) %}
-      raise TTY::Error.new("pidfd_send_signal is Linux-only")
+      {% raise "TTY::Syscall.pidfd_send_signal is Linux-only" %}
     {% else %}
       check(raw(NR_PIDFD_SEND_SIGNAL, pidfd.to_i64, signal.to_i64, Pointer(Void).null.address.to_i64, flags.to_i64), operation: "pidfd_send_signal", fd: pidfd)
     {% end %}
@@ -530,7 +530,7 @@ module TTY::Syscall
 
   def self.splice(fd_in : Int32, offset_in : Int64?, fd_out : Int32, offset_out : Int64?, count : Int, flags : UInt32 = 0_u32) : Int32
     {% if flag?(:darwin) %}
-      raise TTY::Error.new("splice is Linux-only")
+      {% raise "TTY::Syscall.splice is Linux-only" %}
     {% else %}
       in_value = offset_in || 0_i64
       out_value = offset_out || 0_i64
@@ -544,7 +544,7 @@ module TTY::Syscall
 
   def self.copy_file_range(fd_in : Int32, offset_in : Int64?, fd_out : Int32, offset_out : Int64?, count : Int, flags : UInt32 = 0_u32) : Int32
     {% if flag?(:darwin) %}
-      raise TTY::Error.new("copy_file_range is Linux-only")
+      {% raise "TTY::Syscall.copy_file_range is Linux-only" %}
     {% else %}
       in_value = offset_in || 0_i64
       out_value = offset_out || 0_i64

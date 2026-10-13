@@ -1,12 +1,34 @@
 # src/tty/pty.cr
+require "./conversions"
 require "./fd"
 require "./platform"
+require "./readiness"
 require "./syscall"
 require "./termios"
 require "./winsize"
 
 module TTY
+  module ExitStatusMethods
+    def exit_code : Int32
+      exit_status
+    end
+
+    def normal_exit? : Bool
+      exited?
+    end
+
+    def signal_exit? : Bool
+      signaled?
+    end
+
+    def exit_signal : ::Signal
+      ::Signal.new(term_signal)
+    end
+  end
+
   struct ChildStatus
+    include ExitStatusMethods
+
     def initialize(@status : Int32)
     end
 
@@ -50,6 +72,8 @@ module TTY
   end
 
   struct ChildEvent
+    include ExitStatusMethods
+
     getter kind   : ChildEventKind
     getter pid    : Int32
     getter uid    : UInt32
@@ -150,18 +174,49 @@ module TTY
   end
 
   struct SpawnOptions
-    property env         : Hash(String, String)
+    DEFAULT_TERM = "xterm-256color"
+    DEFAULT_PATH = "/usr/bin:/bin"
+    SHELL        = "/bin/sh"
+    SHELL_ARGS   = %("$@")
+
+    getter env           : Hash(String, String?)
+    property clear_env   : Bool
+    property shell       : Bool
     property winsize     : Winsize?
     property working_dir : String?
     property close_fds   : Bool
 
-    def initialize(@env : Hash(String, String) = SpawnOptions.default_env, @winsize : Winsize? = nil, @working_dir : String? = nil, @close_fds : Bool = true)
+    def initialize(env : ::Process::Env = nil, @clear_env : Bool = false, @shell : Bool = false, @winsize : Winsize? = nil, @working_dir : String? = nil, @close_fds : Bool = true)
+      @env = Hash(String, String?).new
+      self.env = env
     end
 
-    def self.default_env : Hash(String, String)
-      env = ENV.to_h
-      env["TERM"] ||= "xterm-256color"
+    def env=(env : ::Process::Env) : ::Process::Env
+      @env = Hash(String, String?).new
+      env.try &.each { |key, value| @env[key] = value }
       env
+    end
+
+    def environment : Hash(String, String)
+      result = Hash(String, String).new
+      unless clear_env
+        result.merge!(ENV.to_h)
+        result["TERM"] ||= DEFAULT_TERM
+      end
+      @env.each do |key, value|
+        if value
+          result[key] = value
+        else
+          result.delete(key)
+        end
+      end
+      result
+    end
+
+    def argv(command : String, args : Array(String)) : Array(String)
+      return [command] + args unless shell
+      script = args.empty? || command.includes?(SHELL_ARGS) ? command : "#{command} #{SHELL_ARGS}"
+      [SHELL, "-c", script, "sh"] + args
     end
   end
 
@@ -260,35 +315,86 @@ module TTY
       end
     end
 
-    def self.spawn(command : String, args : Array(String) = [] of String, *, env : Hash(String, String) = SpawnOptions.default_env, winsize : Winsize? = nil, working_dir : String? = nil, close_fds : Bool = true) : Process
-      spawn(command, args, SpawnOptions.new(env: env, winsize: winsize, working_dir: working_dir, close_fds: close_fds))
+    def self.spawn(command : String, args : Array(String) = [] of String, **options) : Process
+      spawn(command, args, SpawnOptions.new(**options))
     end
 
-    def self.spawn(command : String, args : Array(String) = [] of String, options : SpawnOptions = SpawnOptions.new) : Process
+    def self.spawn(command : String, args : Array(String), options : SpawnOptions) : Process
+      launch(open, command, args, options)
+    end
+
+    def self.spawn(command : String, args : Array(String) = [] of String, **options, & : Process -> U) : U forall U
+      spawn(command, args, SpawnOptions.new(**options)) { |process| yield process }
+    end
+
+    def self.spawn(command : String, args : Array(String), options : SpawnOptions, & : Process -> U) : U forall U
+      process = spawn(command, args, options)
+      begin
+        yield process
+      ensure
+        begin
+          process.pty.close
+          process.wait
+        ensure
+          process.close
+        end
+      end
+    end
+
+    def self.run(command : String, args : Array(String) = [] of String, **options) : Tuple(String, ChildStatus)
+      run(command, args, SpawnOptions.new(**options))
+    end
+
+    def self.run(command : String, args : Array(String), options : SpawnOptions) : Tuple(String, ChildStatus)
       pty = open
-      options.winsize.try &.set(pty.master_fd)
+      begin
+        pty.modify_termios do |termios|
+          termios.output &= ~OutputFlag::ONlcr
+          termios
+        end
+      rescue ex
+        pty.close
+        raise ex
+      end
+      process = launch(pty, command, args, options)
+      begin
+        output = process.gets_to_end
+        {output, process.wait}
+      ensure
+        process.close
+      end
+    end
 
-      argv_strings = [command] + args
-      argv_ptrs    = argv_strings.map(&.to_unsafe)
-      argv_ptrs << Pointer(UInt8).null
-      env_strings = options.env.map { |key, value| "#{key}=#{value}" }
-      env_ptrs    = env_strings.map(&.to_unsafe)
-      env_ptrs << Pointer(UInt8).null
-      path_value = options.env["PATH"]? || ENV["PATH"]? || "/usr/bin:/bin"
-      candidates = if command.includes?('/')
-                     [command]
-                   else
-                     path_value.split(':').map { |dir| dir.empty? ? command : "#{dir}/#{command}" } + [command]
-                   end
+    def self.wait(pid : Int32) : ChildStatus
+      _, status = Syscall.wait4(pid)
+      ChildStatus.new(status)
+    end
 
+    private def self.launch(pty : PTY, command : String, args : Array(String), options : SpawnOptions) : Process
       error_read  = -1
       error_write = -1
       begin
+        options.winsize.try &.set(pty.master_fd)
+        argv_strings = options.argv(command, args)
+        environment  = options.environment
+        env_strings  = environment.map { |key, value| "#{key}=#{value}" }
+        path_value   = environment["PATH"]? || ENV["PATH"]? || SpawnOptions::DEFAULT_PATH
+        executable   = argv_strings[0]
+        candidates   = if executable.includes?('/')
+                         [executable]
+                       else
+                         path_value.split(':').map { |dir| dir.empty? ? executable : "#{dir}/#{executable}" } + [executable]
+                       end
         error_read, error_write = FD.pipe(cloexec: true)
       rescue ex
         pty.close
         raise ex
       end
+
+      argv_ptrs = argv_strings.map(&.to_unsafe)
+      argv_ptrs << Pointer(UInt8).null
+      env_ptrs = env_strings.map(&.to_unsafe)
+      env_ptrs << Pointer(UInt8).null
 
       begin
         pid = Syscall.fork
@@ -417,11 +523,6 @@ module TTY
       Process.new(pid, pty, pidfd)
     end
 
-    def self.wait(pid : Int32) : ChildStatus
-      _, status = Syscall.wait4(pid)
-      ChildStatus.new(status)
-    end
-
     def initialize(@master_fd : Int32, @slave_fd : Int32, @slave_name : String)
       @eof_on_error = true
       @evented_io   = nil.as(IO?)
@@ -440,7 +541,7 @@ module TTY
 
     def locked? : Bool
       {% if flag?(:darwin) %}
-        raise Error.new("PTY#locked? is Linux-only")
+        {% raise "TTY::PTY#locked? is Linux-only" %}
       {% else %}
         value = 0_i32
         Syscall.ioctl(@master_fd, TIOCGPTLCK, pointerof(value))
@@ -450,7 +551,7 @@ module TTY
 
     def packet_mode? : Bool
       {% if flag?(:darwin) %}
-        raise Error.new("PTY#packet_mode? is Linux-only")
+        {% raise "TTY::PTY#packet_mode? is Linux-only" %}
       {% else %}
         value = 0_i32
         Syscall.ioctl(@master_fd, TIOCGPKT, pointerof(value))
@@ -502,7 +603,7 @@ module TTY
 
     def io : IO
       raise Error.new("master fd is closed") if closed?
-      IO.new(self)
+      @evented_io || IO.new(self)
     end
 
     def write_master(data : String) : Int32
@@ -544,16 +645,16 @@ module TTY
       Syscall.read(@slave_fd, buffer.to_unsafe, buffer.size)
     end
 
-    def wait_readable(timeout_ms : Int32 = -1) : Bool
-      TTY.wait_readable(@master_fd, timeout_ms)
+    def wait_readable(timeout : Timeout = nil) : Bool
+      TTY.wait_readable(@master_fd, timeout)
     end
 
-    def wait_priority(timeout_ms : Int32 = -1) : Bool
-      TTY.wait_priority(@master_fd, timeout_ms)
+    def wait_priority(timeout : Timeout = nil) : Bool
+      TTY.wait_priority(@master_fd, timeout)
     end
 
-    def wait_writable(timeout_ms : Int32 = -1) : Bool
-      TTY.wait_writable(@master_fd, timeout_ms)
+    def wait_writable(timeout : Timeout = nil) : Bool
+      TTY.wait_writable(@master_fd, timeout)
     end
 
     def termios : Termios
@@ -563,6 +664,10 @@ module TTY
     def termios=(termios : Termios) : Termios
       termios.set(effective_fd)
       termios
+    end
+
+    def modify_termios(& : Termios -> Termios) : Termios
+      self.termios = yield termios
     end
 
     def winsize : Winsize
@@ -576,7 +681,6 @@ module TTY
 
     def close : Nil
       if io = @evented_io
-        @evented_io = nil
         io.close
         return
       end
@@ -587,8 +691,8 @@ module TTY
       @master_fd = -1
     end
 
-    protected def evented_io? : Bool
-      !@evented_io.nil?
+    protected def evented_io : IO?
+      @evented_io
     end
 
     protected def evented_io=(io : IO) : Nil
@@ -596,7 +700,8 @@ module TTY
     end
 
     protected def io_closed : Nil
-      @master_fd = -1
+      @evented_io = nil
+      @master_fd  = -1
       close_adapters
       close_slave
     end
@@ -641,7 +746,9 @@ module TTY
       value == 0 ? nil : value
     end
 
-    class Process
+    class Process < ::IO
+      RELAY_BUFFER_SIZE = 4096
+
       getter pid : Int32
       getter pty : PTY
 
@@ -650,13 +757,57 @@ module TTY
         @last_event = nil.as(ChildEvent?)
       end
 
+      def io : PTY::IO
+        @pty.io
+      end
+
+      delegate expect, send_line, to: io
+
+      def read(slice : Bytes) : Int32
+        check_open
+        io.read(slice)
+      end
+
+      def write(slice : Bytes) : Nil
+        check_open
+        io.write(slice)
+      end
+
+      def flush : Nil
+        @pty.evented_io.try &.flush
+      end
+
+      def closed? : Bool
+        @pty.closed?
+      end
+
+      def interact(input : ::IO::FileDescriptor = STDIN, output : ::IO = STDOUT) : ChildStatus
+        source      = input.fd
+        terminal    = input.tty?
+        saved_flags = FD.status_flags(source)
+        reader      = ::IO::FileDescriptor.new(FD.duplicate_cloexec(source))
+        Winsize.propagate(source, @pty.master_fd) if terminal
+        begin
+          if terminal
+            TTY.raw(source) { relay(reader, output) }
+          else
+            relay(reader, output)
+          end
+        ensure
+          reader.close
+          Syscall.fcntl(source, Syscall::F_SETFL, saved_flags.to_i64)
+          ::Signal::WINCH.reset if terminal
+        end
+        wait
+      end
+
       def pidfd? : Int32?
         @pidfd
       end
 
       def pidfd : Int32
         {% if flag?(:darwin) %}
-          raise Error.new("Process#pidfd is Linux-only")
+          {% raise "TTY::PTY::Process#pidfd is Linux-only" %}
         {% else %}
           if fd = @pidfd
             fd
@@ -668,8 +819,8 @@ module TTY
         {% end %}
       end
 
-      def poll_exit(timeout_ms : Int32 = -1) : Bool
-        TTY.wait_readable(pidfd, timeout_ms)
+      def poll_exit(timeout : Timeout = nil) : Bool
+        TTY.wait_readable(pidfd, timeout)
       end
 
       def wait : ChildStatus
@@ -686,16 +837,15 @@ module TTY
         end
       end
 
-      def wait(timeout_ms : Int32) : ChildStatus?
-        raise ArgumentError.new("timeout_ms must be non-negative") if timeout_ms < 0
+      def wait(timeout : Int32 | Time::Span) : ChildStatus?
+        remaining = bounded_timeout(timeout)
         return @status if @status
 
         if fd = @pidfd
-          return nil unless TTY.wait_readable(fd, timeout_ms)
+          return nil unless TTY.wait_readable(fd, remaining)
           return wait
         end
 
-        remaining = timeout_ms
         loop do
           begin
             result, raw_status = Syscall.wait4(@pid, Syscall::WNOHANG)
@@ -713,7 +863,7 @@ module TTY
 
       def wait_event : ChildEvent
         {% if flag?(:darwin) %}
-          raise Error.new("Process#wait_event is Linux-only")
+          {% raise "TTY::PTY::Process#wait_event is Linux-only" %}
         {% else %}
           if event = @last_event
             return event if event.terminal?
@@ -722,16 +872,15 @@ module TTY
         {% end %}
       end
 
-      def wait_event(timeout_ms : Int32) : ChildEvent?
+      def wait_event(timeout : Int32 | Time::Span) : ChildEvent?
         {% if flag?(:darwin) %}
-          raise Error.new("Process#wait_event is Linux-only")
+          {% raise "TTY::PTY::Process#wait_event is Linux-only" %}
         {% else %}
-          raise ArgumentError.new("timeout_ms must be non-negative") if timeout_ms < 0
+          remaining = bounded_timeout(timeout)
           if event = @last_event
             return event if event.terminal?
           end
 
-          remaining = timeout_ms
           loop do
             event = wait_event_impl(Syscall::WEXITED | Syscall::WSTOPPED | Syscall::WCONTINUED | Syscall::WNOHANG)
             return event if event
@@ -755,16 +904,17 @@ module TTY
         !@status.nil?
       end
 
-      def signal(signal : Int32) : Nil
+      def signal(signal : SignalValue) : Nil
         return if exited?
+        number = TTY.signal_number(signal)
         if fd = @pidfd
           {% if flag?(:darwin) %}
-            Syscall.kill(@pid, signal)
+            Syscall.kill(@pid, number)
           {% else %}
-            Syscall.pidfd_send_signal(fd, signal)
+            Syscall.pidfd_send_signal(fd, number)
           {% end %}
         else
-          Syscall.kill(@pid, signal)
+          Syscall.kill(@pid, number)
         end
       end
 
@@ -786,6 +936,31 @@ module TTY
           @pidfd = nil
         end
         @pty.close
+      end
+
+      private def relay(reader : ::IO::FileDescriptor, output : ::IO) : Nil
+        channel = io
+        ::spawn do
+          buffer = Bytes.new(RELAY_BUFFER_SIZE)
+          begin
+            while (count = reader.read(buffer)) > 0
+              channel.write(buffer[0, count])
+            end
+          rescue ::IO::Error
+            nil
+          end
+        end
+        buffer = Bytes.new(RELAY_BUFFER_SIZE)
+        while (count = channel.read(buffer)) > 0
+          output.write(buffer[0, count])
+          output.flush
+        end
+      end
+
+      private def bounded_timeout(timeout : Int32 | Time::Span) : Int32
+        limit = TTY.timeout_ms(timeout)
+        raise ArgumentError.new("timeout must be non-negative") if limit < 0
+        limit
       end
 
       private def record_event(event : ChildEvent) : Nil

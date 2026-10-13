@@ -179,3 +179,52 @@ describe TTY do
     end
   end
 end
+
+describe "TTY macro conveniences" do
+  it "toggles termios switches in with_terminal and restores them" do
+    pty = TTY::PTY.open
+    TTY.termios(pty.slave_fd).echo?.should be_true
+    TTY.with_terminal(pty.slave_io, echo: false, signals: false) do
+      termios = TTY.termios(pty.slave_fd)
+      termios.echo?.should be_false
+      termios.signals?.should be_false
+      termios.canonical?.should be_true
+    end
+    TTY.termios(pty.slave_fd).echo?.should be_true
+    TTY.termios(pty.slave_fd).signals?.should be_true
+    pty.close
+  end
+
+  it "combines cbreak with switches" do
+    pty = TTY::PTY.open
+    TTY.with_terminal(pty.slave_fd, cbreak: true, signals: false) do
+      termios = TTY.termios(pty.slave_fd)
+      termios.canonical?.should be_false
+      termios.signals?.should be_false
+    end
+    TTY.termios(pty.slave_fd).canonical?.should be_true
+    pty.close
+  end
+
+  it "configures through an IO" do
+    pty = TTY::PTY.open
+    TTY.configure(pty.slave_io) do
+      local -Echo
+    end
+    TTY.termios(pty.slave_fd).echo?.should be_false
+    pty.close
+  end
+
+  it "supports clear_env and shell in the spawn DSL" do
+    process = TTY.spawn("printf '%s' \"$ONLY\"; env | grep -c PATH; true") do
+      shell true
+      clear_env true
+      env only: "dsl"
+    end
+    output = process.gets_to_end
+    process.wait.success?.should be_true
+    output.should start_with("dsl")
+    output.should eq("dsl0\r\n")
+    process.close
+  end
+end

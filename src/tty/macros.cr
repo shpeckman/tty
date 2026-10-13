@@ -1,7 +1,7 @@
 # src/tty/macros.cr
 module TTY
   macro configure(fd, &block)
-    %fd = {{fd}}
+    %fd = TTY.fd_of({{fd}})
     %termios = TTY::Termios.get(%fd)
     %action = TTY::SetAction::Now
     {% statements = block.body.is_a?(Expressions) ? block.body.expressions : [block.body] %}
@@ -77,27 +77,42 @@ module TTY
     %termios.set(%fd, %action)
   end
 
-  macro with_terminal(fd, raw = false, cbreak = false, nonblocking = nil, &block)
+  macro with_terminal(fd, **options, &block)
+    {% switches = TTY::Termios::SWITCHES %}
+    {% valid = ["raw", "cbreak", "nonblocking"] + switches.keys.map(&.stringify) %}
+    {% for key, value in options %}
+      {% unless valid.includes?(key.stringify) %}
+        {% raise "unknown with_terminal option #{key.id}; valid options: #{valid.join(", ").id}" %}
+      {% end %}
+      {% unless value.is_a?(BoolLiteral) %}
+        {% raise "with_terminal :#{key.id} must be true or false" %}
+      {% end %}
+    {% end %}
+    {% raw = options[:raw] %}
+    {% cbreak = options[:cbreak] %}
+    {% nonblocking = options[:nonblocking] %}
     {% if raw && cbreak %}
       {% raise "with_terminal accepts raw or cbreak, not both" %}
     {% end %}
-    {% unless nonblocking.is_a?(NilLiteral) || nonblocking.is_a?(BoolLiteral) %}
-      {% raise "with_terminal :nonblocking must be true or false" %}
-    {% end %}
-    %fd = {{fd}}
-    {% if raw || cbreak %}
+    {% toggled = switches.keys.select { |name| !options[name].is_a?(NilLiteral) } %}
+    {% configure_termios = raw || cbreak || !toggled.empty? %}
+    %fd = TTY.fd_of({{fd}})
+    {% if configure_termios %}
       %termios = TTY::Termios.get(%fd)
     {% end %}
     {% if nonblocking.is_a?(BoolLiteral) %}
       %status_flags = TTY::FD.status_flags(%fd)
     {% end %}
     begin
-      {% if raw || cbreak %}
+      {% if configure_termios %}
         %configured = %termios
         {% if raw %}
           %configured.make_raw
-        {% else %}
+        {% elsif cbreak %}
           %configured.make_cbreak
+        {% end %}
+        {% for name in toggled %}
+          %configured.{{name.id}} = {{options[name]}}
         {% end %}
         %configured.set(%fd)
       {% end %}
@@ -109,37 +124,40 @@ module TTY
       {% if nonblocking.is_a?(BoolLiteral) %}
         TTY::Syscall.fcntl(%fd, TTY::Syscall::F_SETFL, %status_flags.to_i64)
       {% end %}
-      {% if raw || cbreak %}
+      {% if configure_termios %}
         %termios.set(%fd)
       {% end %}
     end
   end
 
   macro spawn(command, args = nil, &block)
+    {% scalars = {"working_dir" => false, "close_fds" => true, "clear_env" => true, "shell" => true} %}
     {% statements = block.body.is_a?(Expressions) ? block.body.expressions : [block.body] %}
-    {% env_count = 0 %}
+    {% env_pairs = [] of ASTNode %}
     {% winsize_statement = nil %}
-    {% working_dir_value = nil %}
-    {% close_fds_value = nil %}
+    {% scalar_values = {} of StringLiteral => ASTNode %}
     {% for statement in statements %}
       {% unless statement.is_a?(Nop) %}
       {% unless statement.is_a?(Call) %}
-        {% statement.raise "expected a spawn option statement (env, winsize, working_dir, close_fds)" %}
+        {% statement.raise "expected a spawn option statement (env, winsize, #{scalars.keys.join(", ").id})" %}
       {% end %}
-      {% if statement.name == :env %}
+      {% name = statement.name.stringify %}
+      {% if name == "env" %}
         {% if statement.args.size == 1 && statement.args[0].is_a?(HashLiteral) %}
-          {% for key in statement.args[0].keys %}
+          {% for key, index in statement.args[0].keys %}
             {% unless key.is_a?(StringLiteral) %}
               {% key.raise "env hash keys must be strings" %}
             {% end %}
+            {% env_pairs << {key, statement.args[0].values[index]} %}
           {% end %}
-          {% env_count += statement.args[0].keys.size %}
         {% elsif statement.args.empty? %}
-          {% env_count += statement.named_args.size %}
+          {% for entry in statement.named_args %}
+            {% env_pairs << {entry.name.stringify.upcase, entry.value} %}
+          {% end %}
         {% else %}
           {% statement.raise "env accepts named entries (keys are upcased), e.g. env path: \"/bin\", or a single hash literal for exact-case keys" %}
         {% end %}
-      {% elsif statement.name == :winsize %}
+      {% elsif name == "winsize" %}
         {% unless statement.args.empty? %}
           {% statement.raise "winsize accepts named entries only, e.g. winsize rows: 24, cols: 80" %}
         {% end %}
@@ -149,43 +167,39 @@ module TTY
           {% end %}
         {% end %}
         {% winsize_statement = statement %}
-      {% elsif statement.name == :working_dir %}
+      {% elsif scalars.keys.includes?(name) %}
         {% if statement.args.size != 1 %}
-          {% statement.raise "working_dir accepts a single path, e.g. working_dir \"/tmp\"" %}
+          {% statement.raise "#{name.id} accepts a single value" %}
         {% end %}
-        {% working_dir_value = statement.args[0] %}
-      {% elsif statement.name == :close_fds %}
-        {% if statement.args.size != 1 || !statement.args[0].is_a?(BoolLiteral) %}
-          {% statement.raise "close_fds accepts true or false" %}
+        {% if scalars[name] && !statement.args[0].is_a?(BoolLiteral) %}
+          {% statement.raise "#{name.id} accepts true or false" %}
         {% end %}
-        {% close_fds_value = statement.args[0] %}
+        {% scalar_values[name] = statement.args[0] %}
       {% else %}
-        {% statement.raise "unknown spawn option #{statement.name.id}; expected env, winsize, working_dir or close_fds" %}
+        {% statement.raise "unknown spawn option #{name.id}; expected env, winsize, #{scalars.keys.join(", ").id}" %}
       {% end %}
       {% end %}
     {% end %}
-    TTY::PTY.spawn({{command}}{% if args %}, {{args}}{% end %}{% if env_count > 0 %},
-      env: TTY::SpawnOptions.default_env.merge({
-        {% for statement in statements %}
-          {% if statement.is_a?(Call) && statement.name == :env %}
-            {% if statement.args.size == 1 && statement.args[0].is_a?(HashLiteral) %}
-              {% for key, index in statement.args[0].keys %}
-                ({{key}}) => ({{statement.args[0].values[index]}}),
-              {% end %}
-            {% else %}
-              {% for entry in statement.named_args %}
-                {{entry.name.stringify.upcase}} => ({{entry.value}}),
-              {% end %}
-            {% end %}
+    TTY::PTY.spawn(
+      {{command}},
+      {% if args %}{{args}}{% else %}[] of String{% end %},
+      {% unless env_pairs.empty? %}
+        env: {
+          {% for pair in env_pairs %}
+            ({{pair[0]}}) => ({{pair[1]}}),
           {% end %}
-        {% end %}
-      }){% end %}{% if winsize_statement %},
-      winsize: TTY::Winsize.new(
-        {% for entry in winsize_statement.named_args %}
-          {{entry.name.id}}: {{entry.value}},
-        {% end %}
-      ){% end %}{% if working_dir_value %},
-      working_dir: {{working_dir_value}}{% end %}{% if close_fds_value %},
-      close_fds: {{close_fds_value}}{% end %})
+        } of String => String?,
+      {% end %}
+      {% if winsize_statement %}
+        winsize: TTY::Winsize.new(
+          {% for entry in winsize_statement.named_args %}
+            {{entry.name.id}}: {{entry.value}},
+          {% end %}
+        ),
+      {% end %}
+      {% for name, value in scalar_values %}
+        {{name.id}}: {{value}},
+      {% end %}
+    )
   end
 end

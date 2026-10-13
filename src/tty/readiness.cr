@@ -1,4 +1,5 @@
 # src/tty/readiness.cr
+require "./conversions"
 require "./syscall"
 
 module TTY
@@ -11,8 +12,8 @@ module TTY
     def initialize(@fd : Int32, @events : Int16, @revents : Int16 = 0_i16)
     end
 
-    def self.watch(fd : Int32, events : IOEvent) : PollFd
-      new(fd, events.value)
+    def self.watch(fd : Descriptor, events : IOEvent) : PollFd
+      new(TTY.fd_of(fd), events.value)
     end
 
     def readable? : Bool
@@ -54,55 +55,56 @@ module TTY
   POLL_HUP     = IOEvent::HangUp.value
   POLL_INVALID = IOEvent::Invalid.value
 
-  def self.poll(fds : Array(PollFd), timeout_ms : Int32 = -1) : Int32
-    poll(Slice.new(fds.to_unsafe, fds.size), timeout_ms)
+  def self.poll(fds : Array(PollFd), timeout : Timeout = nil) : Int32
+    poll(Slice.new(fds.to_unsafe, fds.size), timeout)
   end
 
-  def self.poll(fds : Slice(PollFd), timeout_ms : Int32 = -1) : Int32
-    raise ArgumentError.new("timeout_ms must be -1 or greater") if timeout_ms < -1
+  def self.poll(fds : Slice(PollFd), timeout : Timeout = nil) : Int32
+    limit = timeout_ms(timeout)
     return 0 if fds.empty?
 
     loop do
       begin
-        return Syscall.poll(fds.to_unsafe.as(Pointer(Void)), fds.size.to_u64, timeout_ms)
+        return Syscall.poll(fds.to_unsafe.as(Pointer(Void)), fds.size.to_u64, limit)
       rescue ex : Syscall::Error
         raise ex unless ex.errno == Syscall::EINTR
       end
     end
   end
 
-  def self.wait_readable(fd : Int32, timeout_ms : Int32 = -1) : Bool
-    wait_io(fd, IOEvent::Readable, timeout_ms)
+  def self.wait_readable(fd : Descriptor, timeout : Timeout = nil) : Bool
+    wait_io(fd, IOEvent::Readable, timeout)
   end
 
-  def self.wait_priority(fd : Int32, timeout_ms : Int32 = -1) : Bool
-    wait_io(fd, IOEvent::Priority, timeout_ms)
+  def self.wait_priority(fd : Descriptor, timeout : Timeout = nil) : Bool
+    wait_io(fd, IOEvent::Priority, timeout)
   end
 
-  def self.wait_writable(fd : Int32, timeout_ms : Int32 = -1) : Bool
-    wait_io(fd, IOEvent::Writable, timeout_ms)
+  def self.wait_writable(fd : Descriptor, timeout : Timeout = nil) : Bool
+    wait_io(fd, IOEvent::Writable, timeout)
   end
 
-  def self.wait_io(fd : Int32, events : IOEvent, timeout_ms : Int32 = -1) : Bool
-    if fd < 0
-      raise Syscall::Error.new(Syscall::EBADF, operation: "poll", fd: fd, request: events.value.to_u64)
+  def self.wait_io(fd : Descriptor, events : IOEvent, timeout : Timeout = nil) : Bool
+    number = fd_of(fd)
+    if number < 0
+      raise Syscall::Error.new(Syscall::EBADF, operation: "poll", fd: number, request: events.value.to_u64)
     end
-    raise ArgumentError.new("timeout_ms must be -1 or greater") if timeout_ms < -1
+    limit = timeout_ms(timeout)
 
     mask = events.value | IOEvent::Error.value | IOEvent::HangUp.value
     loop do
-      pollfd = PollFd.watch(fd, events)
+      pollfd = PollFd.watch(number, events)
 
       begin
-        result = Syscall.poll(pointerof(pollfd).as(Pointer(Void)), 1_u64, timeout_ms)
+        result = Syscall.poll(pointerof(pollfd).as(Pointer(Void)), 1_u64, limit)
       rescue ex : Syscall::Error
         next if ex.errno == Syscall::EINTR
-        raise Syscall::Error.new(ex.errno, operation: ex.operation, fd: fd, request: events.value.to_u64)
+        raise Syscall::Error.new(ex.errno, operation: ex.operation, fd: number, request: events.value.to_u64)
       end
 
       return false if result == 0
       if pollfd.invalid?
-        raise Syscall::Error.new(Syscall::EBADF, operation: "poll", fd: fd, request: events.value.to_u64)
+        raise Syscall::Error.new(Syscall::EBADF, operation: "poll", fd: number, request: events.value.to_u64)
       end
       return (pollfd.revents & mask) != 0
     end
