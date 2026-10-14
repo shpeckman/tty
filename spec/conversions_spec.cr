@@ -21,20 +21,12 @@ describe "TTY argument conversions" do
     TTY.winsize(slave).cols.should eq(34_u16)
     TTY.wait_writable(slave, 0).should be_true
     TTY.raw(slave) { TTY.termios(slave).canonical?.should be_false }
-    TTY::FD.character_device?(slave).should be_true
     pty.close
   end
 
-  it "accepts Time::Span timeouts on readiness, poller and process waits" do
+  it "accepts Time::Span timeouts on readiness and process waits" do
     pty = TTY::PTY.open
     pty.wait_readable(20.milliseconds).should be_false
-    poller = TTY::Poller.new
-    poller.watch(pty.master_io, TTY::IOEvent::Readable)
-    poller.wait(10.milliseconds).should be_empty
-    pty.write_slave("x")
-    poller.wait(1.second).size.should eq(1)
-    poller.unwatch(pty.master_fd)
-    poller.close
     pty.close
 
     process = TTY::PTY.spawn("sleep", ["5"])

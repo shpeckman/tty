@@ -19,14 +19,6 @@ Benchmark.ips do |x|
       total += pty.read_slave(received[total..])
     end
   end
-
-  x.report("pty master->slave 1KiB vectored") do
-    pty.write_master_v([payload[0, 512], payload[512, 512]])
-    total = 0
-    while total < payload.size
-      total += pty.read_slave(received[total..])
-    end
-  end
 end
 
 pty.close

@@ -120,7 +120,7 @@ describe "PTY.spawn block form" do
 
   it "accepts SpawnOptions in block form" do
     options = TTY::SpawnOptions.new(working_dir: "/tmp")
-    output = TTY::PTY.spawn("pwd", [] of String, options, &.gets_to_end)
+    output  = TTY::PTY.spawn("pwd", [] of String, options, &.gets_to_end)
     output.should contain("/tmp")
   end
 end

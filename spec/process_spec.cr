@@ -75,7 +75,7 @@ end
 describe "TTY::PTY::Process#interact" do
   it "relays piped input to the child and child output back" do
     input_read, input_write = IO.pipe
-    output = IO::Memory.new
+    output  = IO::Memory.new
     flags   = TTY::FD.status_flags(input_read)
     process = TTY::PTY.spawn("sh", ["-c", "read line; echo \"got $line\""])
     input_write.puts "ping"

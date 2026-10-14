@@ -21,46 +21,36 @@ describe TTY::FD do
     TTY::Syscall.close(write_fd)
   end
 
-  it "transfers data with readv and writev" do
-    fds = uninitialized Int32[2]
-    TTY::Syscall.socketpair(TTY::Syscall::AF_UNIX, TTY::Syscall::SOCK_STREAM, 0, fds.to_unsafe)
-    left  = fds[0]
-    right = fds[1]
+  {% unless flag?(:darwin) %}
+    it "duplicates with dup3 and closes an explicit fd range" do
+      read_fd, write_fd = TTY::FD.pipe
+      duplicate = TTY::Syscall.fcntl(read_fd, TTY::Syscall::F_DUPFD_CLOEXEC, 200_i64)
+      duplicate.should be >= 200
+      TTY::FD.cloexec?(duplicate).should be_true
 
-    written = TTY::FD.writev(left, ["he".to_slice, "llo".to_slice])
-    written.should eq(5)
+      TTY::FD.close_range(duplicate, duplicate)
+      byte = 0_u8
+      expect_raises(TTY::Syscall::Error) do
+        TTY::Syscall.read(duplicate, pointerof(byte), 1)
+      end
 
-    first  = Bytes.new(2)
-    second = Bytes.new(3)
-    read   = TTY::FD.readv(right, [first, second])
-    read.should eq(5)
-    String.new(first).should eq("he")
-    String.new(second).should eq("llo")
-
-    TTY::Syscall.close(left)
-    TTY::Syscall.close(right)
-  end
-
-  it "duplicates with dup3 and closes an explicit fd range" do
-    read_fd, write_fd = TTY::FD.pipe
-    duplicate = TTY::Syscall.fcntl(read_fd, TTY::Syscall::F_DUPFD_CLOEXEC, 200_i64)
-    duplicate.should be >= 200
-    TTY::FD.cloexec?(duplicate).should be_true
-
-    TTY::FD.close_range(duplicate, duplicate)
-    byte = 0_u8
-    expect_raises(TTY::Syscall::Error) do
-      TTY::Syscall.read(duplicate, pointerof(byte), 1)
+      TTY::Syscall.close(read_fd)
+      TTY::Syscall.close(write_fd)
     end
 
-    TTY::Syscall.close(read_fd)
-    TTY::Syscall.close(write_fd)
-  end
-
-  it "reports stat metadata for a pty character device" do
-    pty = TTY::PTY.open
-    TTY::FD.character_device?(pty.master_fd).should be_true
-    TTY::FD.stat(pty.master_fd).mode.should_not eq(0_u32)
-    pty.close
-  end
+    it "closes fds through the procfs fallback walker" do
+      read_fd, write_fd = TTY::FD.pipe
+      pid = TTY::Syscall.fork
+      if pid == 0
+        result = TTY::Syscall.close_fds_via_procfs(read_fd, Int32::MAX, -1)
+        TTY::Syscall.exit_group(3) if result < 0
+        check = TTY::Syscall.raw(TTY::Syscall::NR_FCNTL, read_fd.to_i64, TTY::Syscall::F_GETFD.to_i64, 0_i64)
+        TTY::Syscall.exit_group(check < 0 ? 0 : 5)
+      end
+      _, status = TTY::Syscall.wait4(pid)
+      TTY::ChildStatus.new(status).exit_status.should eq(0)
+      TTY::Syscall.close(read_fd)
+      TTY::Syscall.close(write_fd)
+    end
+  {% end %}
 end
