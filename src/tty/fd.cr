@@ -69,46 +69,4 @@ module TTY::FD
       end
     {% end %}
   end
-
-  def self.splice(from : Descriptor, to : Descriptor, count : Int, flags : UInt32 = 0_u32) : Int32
-    Syscall.splice(TTY.fd_of(from), nil, TTY.fd_of(to), nil, count, flags)
-  end
-
-  def self.tee(from : Descriptor, to : Descriptor, count : Int, flags : UInt32 = 0_u32) : Int32
-    Syscall.tee(TTY.fd_of(from), TTY.fd_of(to), count, flags)
-  end
-
-  def self.copy_file_range(from : Descriptor, to : Descriptor, count : Int) : Int32
-    Syscall.copy_file_range(TTY.fd_of(from), nil, TTY.fd_of(to), nil, count)
-  end
-
-  def self.stat(fd : Descriptor)
-    {% if flag?(:darwin) %}
-      {% raise "TTY::FD.stat is Linux-only" %}
-    {% else %}
-      Syscall.fstat(TTY.fd_of(fd))
-    {% end %}
-  end
-
-  def self.mode(fd : Descriptor) : UInt32
-    stat(fd).mode
-  end
-
-  def self.character_device?(fd : Descriptor) : Bool
-    {% if flag?(:darwin) %}
-      {% raise "TTY::FD.character_device? is Linux-only" %}
-    {% else %}
-      (mode(fd) & 0o170000_u32) == 0o020000_u32
-    {% end %}
-  end
-
-  def self.readv(fd : Descriptor, buffers : Array(Bytes)) : Int32
-    iovecs = buffers.map { |buffer| Syscall::IOVec.new(buffer.to_unsafe, buffer.size.to_u64) }
-    Syscall.readv(TTY.fd_of(fd), iovecs.to_unsafe, iovecs.size.to_i32)
-  end
-
-  def self.writev(fd : Descriptor, buffers : Array(Bytes)) : Int32
-    iovecs = buffers.map { |buffer| Syscall::IOVec.new(buffer.to_unsafe, buffer.size.to_u64) }
-    Syscall.writev(TTY.fd_of(fd), iovecs.to_unsafe, iovecs.size.to_i32)
-  end
 end

@@ -18,15 +18,10 @@ module TTY::Syscall
     NR_OPENAT      = 0x20001CF_u64
     NR_KILL        = 0x2000025_u64
     NR_POLL        = 0x20000E6_u64
-    NR_SOCKETPAIR  = 0x2000087_u64
     NR_SIGACTION   = 0x200002E_u64
     NR_SIGPROCMASK = 0x2000030_u64
     NR_PIPE        = 0x200002A_u64
     NR_FCNTL       = 0x200005C_u64
-    NR_READV       = 0x2000078_u64
-    NR_WRITEV      = 0x2000079_u64
-    NR_KQUEUE      = 0x200016A_u64
-    NR_KEVENT      = 0x200016B_u64
 
     AT_FDCWD = -2_i64
 
@@ -49,41 +44,30 @@ module TTY::Syscall
     NR_READ              =   0_u64
     NR_WRITE             =   1_u64
     NR_CLOSE             =   3_u64
-    NR_FSTAT             =   5_u64
     NR_POLL              =   7_u64
     NR_IOCTL             =  16_u64
-    NR_READV             =  19_u64
-    NR_WRITEV            =  20_u64
     NR_DUP2              =  33_u64
     NR_GETPID            =  39_u64
     NR_FORK              =  57_u64
     NR_EXECVE            =  59_u64
     NR_WAIT4             =  61_u64
     NR_KILL              =  62_u64
-    NR_UNAME             =  63_u64
     NR_FCNTL             =  72_u64
     NR_CHDIR             =  80_u64
     NR_SETPGID           = 109_u64
     NR_SETSID            = 112_u64
     NR_GETPGID           = 121_u64
     NR_EXIT_GROUP        = 231_u64
-    NR_EPOLL_WAIT        = 232_u64
-    NR_EPOLL_CTL         = 233_u64
     NR_OPENAT            = 257_u64
-    NR_EPOLL_CREATE1     = 291_u64
     NR_DUP3              = 292_u64
     NR_PIPE2             = 293_u64
     NR_WAITID            = 247_u64
     NR_PIDFD_SEND_SIGNAL = 424_u64
     NR_PIDFD_OPEN        = 434_u64
     NR_CLOSE_RANGE       = 436_u64
-    NR_SOCKETPAIR        =  53_u64
     NR_RT_SIGACTION      =  13_u64
     NR_RT_SIGPROCMASK    =  14_u64
-    NR_SPLICE            = 275_u64
-    NR_TEE               = 276_u64
     NR_GETDENTS64        = 217_u64
-    NR_COPY_FILE_RANGE   = 326_u64
 
     AT_FDCWD = -100_i64
 
@@ -99,11 +83,6 @@ module TTY::Syscall
 
     SIG_SETMASK = 2_i32
     SIGSET_SIZE = 8_u64
-
-    SPLICE_F_MOVE     = 1_u32
-    SPLICE_F_NONBLOCK = 2_u32
-    SPLICE_F_MORE     = 4_u32
-    SPLICE_F_GIFT     = 8_u32
 
     @[Extern]
     struct Sigaction
@@ -154,17 +133,10 @@ module TTY::Syscall
   ENOTTY = 25_i32
   EPIPE  = 32_i32
 
-  AF_UNIX     = 1_i32
-  SOCK_STREAM = 1_i32
-
   SIGKILL =  9_i32
   SIGTERM = 15_i32
   SIGCONT = 18_i32
   SIGSTOP = 19_i32
-
-  EPOLL_CTL_ADD = 1_i32
-  EPOLL_CTL_DEL = 2_i32
-  EPOLL_CTL_MOD = 3_i32
 
   class Error < TTY::Error
     getter errno     : Int32
@@ -214,59 +186,7 @@ module TTY::Syscall
     end
   end
 
-  @[Extern]
-  struct IOVec
-    getter base   : Pointer(UInt8)
-    getter length : UInt64
-
-    def initialize(@base : Pointer(UInt8), @length : UInt64)
-    end
-  end
-
   {% unless flag?(:darwin) %}
-    @[Extern]
-    struct Stat
-      getter dev : UInt64
-      getter ino : UInt64
-      getter nlink : UInt64
-      getter mode : UInt32
-      getter uid : UInt32
-      getter gid : UInt32
-      @pad0 : Int32
-      getter rdev : UInt64
-      getter size : Int64
-      getter blksize : Int64
-      getter blocks : Int64
-      getter atime : Int64
-      getter atime_nsec : Int64
-      getter mtime : Int64
-      getter mtime_nsec : Int64
-      getter ctime : Int64
-      getter ctime_nsec : Int64
-      @unused : StaticArray(Int64, 3)
-
-      def initialize
-        @dev = 0_u64
-        @ino = 0_u64
-        @nlink = 0_u64
-        @mode = 0_u32
-        @uid = 0_u32
-        @gid = 0_u32
-        @pad0 = 0_i32
-        @rdev = 0_u64
-        @size = 0_i64
-        @blksize = 0_i64
-        @blocks = 0_i64
-        @atime = 0_i64
-        @atime_nsec = 0_i64
-        @mtime = 0_i64
-        @mtime_nsec = 0_i64
-        @ctime = 0_i64
-        @ctime_nsec = 0_i64
-        @unused = StaticArray(Int64, 3).new(0_i64)
-      end
-    end
-
     @[Extern]
     struct Siginfo
       getter signo : Int32
@@ -301,8 +221,8 @@ module TTY::Syscall
       asm("syscall" : "={rax}"(result) : "{rax}"(nr), "{rdi}"(a1), "{rsi}"(a2), "{rdx}"(a3), "{r10}"(a4), "{r8}"(a5), "{r9}"(a6) : "rcx", "r11", "memory" : "volatile")
       result
     {% else %}
-        {% raise "TTY requires an x86_64 target" %}
-      {% end %}
+      {% raise "TTY requires an x86_64 target" %}
+    {% end %}
   end
 
   def self.check(ret : Int64, operation : String = "syscall", fd : Int32? = nil, path : String? = nil, request : UInt64? = nil) : Int64
@@ -366,23 +286,9 @@ module TTY::Syscall
     write(fd, data.to_unsafe, data.size)
   end
 
-  def_syscall readv, NR_READV, fd : Int32, iovecs : Pointer(IOVec), count : Int32
-
-  def_syscall writev, NR_WRITEV, fd : Int32, iovecs : Pointer(IOVec), count : Int32
-
   def_syscall close, NR_CLOSE, fd : Int32, returns: Nil
 
   def_syscall fcntl, NR_FCNTL, fd : Int32, command : Int32, argument : Int64 = 0_i64
-
-  def self.fstat(fd : Int32)
-    {% if flag?(:darwin) %}
-      {% raise "TTY::Syscall.fstat is Linux-only" %}
-    {% else %}
-      stat = Stat.new
-      check(raw(NR_FSTAT, fd.to_i64, pointerof(stat).address.to_i64), operation: "fstat", fd: fd)
-      stat
-    {% end %}
-  end
 
   def_syscall ioctl_result, NR_IOCTL, fd : Int32, request : UInt64, arg : Pointer(T), generic: T, op: "ioctl", request: request
 
@@ -473,8 +379,6 @@ module TTY::Syscall
     raise ex unless ex.errno == EINTR
   end
 
-  def_syscall socketpair, NR_SOCKETPAIR, domain : Int32, type : Int32, protocol : Int32, fds : Pointer(Int32), returns: Nil
-
   def_syscall close_range, NR_CLOSE_RANGE, first : Int32, last : Int32, flags : UInt32 = 0_u32, returns: Nil, linux_only: true
 
   def self.close_range_fallback?(errno : Int32) : Bool
@@ -527,42 +431,6 @@ module TTY::Syscall
       failure
     {% end %}
   end
-
-  def self.splice(fd_in : Int32, offset_in : Int64?, fd_out : Int32, offset_out : Int64?, count : Int, flags : UInt32 = 0_u32) : Int32
-    {% if flag?(:darwin) %}
-      {% raise "TTY::Syscall.splice is Linux-only" %}
-    {% else %}
-      in_value = offset_in || 0_i64
-      out_value = offset_out || 0_i64
-      in_pointer = offset_in ? pointerof(in_value) : Pointer(Int64).null
-      out_pointer = offset_out ? pointerof(out_value) : Pointer(Int64).null
-      check(raw(NR_SPLICE, fd_in.to_i64, in_pointer.address.to_i64, fd_out.to_i64, out_pointer.address.to_i64, count.to_i64, flags.to_i64), operation: "splice").to_i32
-    {% end %}
-  end
-
-  def_syscall tee, NR_TEE, fd_in : Int32, fd_out : Int32, count : Int, flags : UInt32 = 0_u32, linux_only: true
-
-  def self.copy_file_range(fd_in : Int32, offset_in : Int64?, fd_out : Int32, offset_out : Int64?, count : Int, flags : UInt32 = 0_u32) : Int32
-    {% if flag?(:darwin) %}
-      {% raise "TTY::Syscall.copy_file_range is Linux-only" %}
-    {% else %}
-      in_value = offset_in || 0_i64
-      out_value = offset_out || 0_i64
-      in_pointer = offset_in ? pointerof(in_value) : Pointer(Int64).null
-      out_pointer = offset_out ? pointerof(out_value) : Pointer(Int64).null
-      check(raw(NR_COPY_FILE_RANGE, fd_in.to_i64, in_pointer.address.to_i64, fd_out.to_i64, out_pointer.address.to_i64, count.to_i64, flags.to_i64), operation: "copy_file_range").to_i32
-    {% end %}
-  end
-
-  def_syscall epoll_create1, NR_EPOLL_CREATE1, flags : Int32 = 0_i32, linux_only: true
-
-  def_syscall epoll_ctl, NR_EPOLL_CTL, epfd : Int32, operation : Int32, fd : Int32, event : Pointer(Void)? = nil, returns: Nil, linux_only: true
-
-  def_syscall epoll_wait, NR_EPOLL_WAIT, epfd : Int32, events : Pointer(Void), max_events : Int32, timeout_ms : Int32, fd: epfd, linux_only: true
-
-  def_syscall kqueue, NR_KQUEUE, darwin_only: true
-
-  def_syscall kevent, NR_KEVENT, kq : Int32, changes : Pointer(Void), change_count : Int32, events : Pointer(Void), event_count : Int32, timeout : Pointer(Void)? = nil, fd: kq, darwin_only: true
 
   def self.reset_child_signal_state : Nil
     {% if flag?(:darwin) %}

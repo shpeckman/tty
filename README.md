@@ -120,14 +120,14 @@ process.close
 
 `PTY.spawn` and `PTY.run` take the same named options. They can also be bundled in a `TTY::SpawnOptions` value and passed as the third argument.
 
-| Option | Default | Effect |
-| --- | --- | --- |
-| `env` | `nil` | Variables merged into the child's environment; a `nil` value removes that variable |
-| `clear_env` | `false` | Start from an empty environment instead of the parent's |
-| `shell` | `false` | Treat `command` as a shell command line run by `/bin/sh -c` |
-| `winsize` | `nil` | Initial window size of the PTY |
-| `working_dir` | `nil` | Directory the child starts in |
-| `close_fds` | `true` | Close every inherited descriptor except stdio before exec (Linux) |
+Option        | Default | Effect
+--------------|---------|-----------------------------------------------------------------------------------
+`env`         | `nil`   | Variables merged into the child's environment; a `nil` value removes that variable
+`clear_env`   | `false` | Start from an empty environment instead of the parent's
+`shell`       | `false` | Treat `command` as a shell command line run by `/bin/sh -c`
+`winsize`     | `nil`   | Initial window size of the PTY
+`working_dir` | `nil`   | Directory the child starts in
+`close_fds`   | `true`  | Close every inherited descriptor except stdio before exec (Linux)
 
 ```crystal
 TTY::PTY.spawn("make", env: {"CC" => "clang", "MAKEFLAGS" => nil}, working_dir: "/src")
@@ -352,7 +352,7 @@ pty.close
 ```
 
 - `master_fd`, `slave_fd`: the raw descriptors; `master_io` and `slave_io` wrap them as `IO::FileDescriptor`.
-- `read_master`, `write_master`, `read_slave`, `write_slave`, and vectored `read_master_v`/`write_master_v` are direct blocking I/O.
+- `read_master`, `write_master`, `read_slave`, and `write_slave` are direct blocking I/O.
 - `io` returns the fiber-aware `PTY::IO` over the master, the same object a `PTY::Process` reads through. It is created on first use, switches the master to nonblocking mode, and is reused afterwards. Do not mix it with the direct master calls.
 - After the slave side is gone, master reads report end of stream instead of raising `EIO`; set `eof_on_error = false` to get the error.
 - `close` is idempotent and closes every wrapper that was handed out.
@@ -388,20 +388,9 @@ watches.select(&.readable?)
 
 The single-descriptor waits also return `true` on hang-up or error, so a closed peer never blocks forever.
 
-### Poller
-
-`TTY::Poller` keeps a watch set between waits. It uses `epoll` on Linux and `kqueue` on macOS; `TTY::Poller.poll` selects plain `poll` explicitly.
-
-```crystal
-poller = TTY::Poller.new
-poller.watch(STDIN, TTY::IOEvent::Readable)
-poller.wait(1.second).each { |event| event.fd if event.readable? }
-poller.close
-```
-
 ### Descriptor utilities
 
-`TTY::FD` covers status and descriptor flags (`nonblocking?`, `set_nonblocking`, `cloexec?`, `set_cloexec`), `pipe`, `dup3`, `duplicate_cloexec`, `readv`/`writev`, `stat`, and on Linux `close_range` plus the zero-copy `splice`, `tee`, and `copy_file_range`.
+`TTY::FD` covers status and descriptor flags (`nonblocking?`, `set_nonblocking`, `cloexec?`, `set_cloexec`), `pipe`, `dup3`, `duplicate_cloexec`, and on Linux `close_range`.
 
 ## Sessions and serial lines
 
@@ -413,11 +402,11 @@ For serial devices, the top-level `TTY` module provides queue inspection (`pendi
 
 The public API accepts the same three kinds of arguments everywhere:
 
-| Alias | Accepts | Meaning |
-| --- | --- | --- |
-| `TTY::Descriptor` | `Int32`, `IO::FileDescriptor` | Any descriptor, for example `STDIN` or a raw fd |
-| `TTY::Timeout` | `nil`, `Int32`, `Time::Span` | `nil` waits forever, `0` checks once, an `Int32` counts milliseconds (`-1` also means forever), a span is rounded up to milliseconds |
-| `TTY::SignalValue` | `Int32`, `Signal` | A signal |
+Alias              | Accepts                       | Meaning
+-------------------|-------------------------------|-------------------------------------------------------------------------------------------------------------------------------------
+`TTY::Descriptor`  | `Int32`, `IO::FileDescriptor` | Any descriptor, for example `STDIN` or a raw fd
+`TTY::Timeout`     | `nil`, `Int32`, `Time::Span`  | `nil` waits forever, `0` checks once, an `Int32` counts milliseconds (`-1` also means forever), a span is rounded up to milliseconds
+`TTY::SignalValue` | `Int32`, `Signal`             | A signal
 
 `wait(timeout)` and `wait_event(timeout)` on a process require a non-negative timeout. The conversions are public as `TTY.fd_of`, `TTY.timeout_ms`, and `TTY.signal_number`.
 
@@ -433,7 +422,7 @@ Errors:
 
 - **Event loop.** `PTY::IO` and the `PTY::Process` IO methods, including `expect` and `send_line`, go through the Crystal event loop and suspend only the calling fiber. The direct calls (`TTY::Syscall`, `PTY#read_master`, blocking `wait`) block the whole thread in the default single-threaded runtime.
 - **Bounded waits.** Timed waits (`wait(timeout)`, `wait_event(timeout)`, `wait_readable`) are safe to use from fibers. `PTY.run`, the block form of `PTY.spawn`, and `interact` end with a blocking `wait` after the program's output has ended or its terminal has been hung up.
-- **Ownership.** A `PTY`, `PTY::Process`, or `Poller` is not internally synchronized; let one fiber own it at a time.
+- **Ownership.** A `PTY` or `PTY::Process` is not internally synchronized; let one fiber own it at a time.
 - **Closing descriptors.** Close the `IO`, not the raw fd. Closing a descriptor the event loop knows about with `Syscall.close` leaves a stale registration that affects the next descriptor reusing that number. Closing a `PTY` or its IO wakes any fiber blocked on it with `IO::Error`.
 - **Child reaping.** Crystal's runtime reaps children on `SIGCHLD`. `wait` and `wait_event` recover the status the runtime recorded, so the exact exit status is never lost unless the child is reaped outside both this shard and the runtime.
 - **Resize handlers.** `on_resize` and `Winsize.propagate` install a process-wide `SIGWINCH` handler that replaces any previous one, and the descriptor they watch must stay open.
@@ -441,9 +430,9 @@ Errors:
 
 ## Platform support
 
-Everything works on Linux. On macOS the portable core works: spawning, IO, expect, interact, termios, window size, sessions, readiness, and the `kqueue` poller.
+Everything works on Linux. On macOS the portable core works: spawning, IO, expect, interact, termios, window size, sessions, and readiness.
 
-Linux-only APIs are compile-time errors on macOS: a call to one fails the build with a message such as `TTY.flow_control is Linux-only`, and code that never calls them compiles normally. This covers `termios2` custom baud rates, `close_range`, `splice`/`tee`/`copy_file_range`, `fstat`, `wait_event`, pidfds, `epoll`, packet-mode and lock queries, flow control, modem-line set/clear/wait, and serial counters. `TTY::EpollPoller` exists only on Linux and `TTY::KqueuePoller` only on macOS; asking `Poller.new` for the other platform's backend raises `TTY::Error`.
+Linux-only APIs are compile-time errors on macOS: a call to one fails the build with a message such as `TTY.flow_control is Linux-only`, and code that never calls them compiles normally. This covers `termios2` custom baud rates, `close_range`, `wait_event`, pidfds, packet-mode and lock queries, flow control, modem-line set/clear/wait, and serial counters.
 
 ## API reference
 
@@ -451,219 +440,110 @@ Every `fd` parameter is a `TTY::Descriptor`, every `timeout` a `TTY::Timeout`, a
 
 ### `TTY::PTY` (class methods)
 
-`open`  
-Allocate a master/slave pair; returns `PTY`  
-
-`spawn(command, args = [] of String, **options)`  
-Start a program on a new PTY; returns `PTY::Process`  
-
-`spawn(command, args, options : SpawnOptions)`  
-Same, with an options value; returns `PTY::Process`  
-
-`spawn(command, args = [] of String, **options) { |process| }`  
-Start, yield, then hang up, reap, and close; returns the block's value  
-
-`spawn(command, args, options : SpawnOptions) { |process| }`  
-Same, with an options value; returns the block's value  
-
-`run(command, args = [] of String, **options)`  
-Capture all output and the exit status; returns `{String, ChildStatus}`  
-
-`run(command, args, options : SpawnOptions)`  
-Same, with an options value; returns `{String, ChildStatus}`  
-
-`wait(pid : Int32)`  
-Blocking wait for any pid; returns `ChildStatus`  
+Method                                                         | Description
+---------------------------------------------------------------|------------------------------------------------------------------------
+`open`                                                         | Allocate a master/slave pair; returns `PTY`
+`spawn(command, args = [] of String, **options)`               | Start a program on a new PTY; returns `PTY::Process`
+`spawn(command, args, options : SpawnOptions)`                 | Same, with an options value; returns `PTY::Process`
+`spawn(command, args = [] of String, **options) { |process| }` | Start, yield, then hang up, reap, and close; returns the block's value
+`spawn(command, args, options : SpawnOptions) { |process| }`   | Same, with an options value; returns the block's value
+`run(command, args = [] of String, **options)`                 | Capture all output and the exit status; returns `{String, ChildStatus}`
+`run(command, args, options : SpawnOptions)`                   | Same, with an options value; returns `{String, ChildStatus}`
+`wait(pid : Int32)`                                            | Blocking wait for any pid; returns `ChildStatus`
 
 ### `TTY::PTY` (instance)
 
-`master_fd`, `slave_fd`, `slave_name`  
-Raw descriptors and slave device path  
-
-`io`  
-Fiber-aware `PTY::IO` over the master, created once  
-
-`master_io`, `slave_io`  
-`IO::FileDescriptor` wrappers, closed with the PTY  
-
-`read_master(buffer)`, `write_master(data)`  
-Blocking master I/O  
-
-`read_master_v(buffers)`, `write_master_v(buffers)`  
-Vectored master I/O  
-
-`read_slave(buffer)`, `write_slave(data)`  
-Blocking slave I/O  
-
-`wait_readable(timeout = nil)`, `wait_writable(timeout = nil)`, `wait_priority(timeout = nil)`  
-Master readiness  
-
-`termios`, `termios=`, `modify_termios { }`  
-Terminal attributes  
-
-`winsize`, `winsize=`  
-Window size  
-
-`packet_mode=`, `packet_mode?`, `read_packet(buffer)`  
-Packet mode (`packet_mode?` is Linux-only)  
-
-`locked?`  
-Slave lock state (Linux-only)  
-
-`eof_on_error`, `eof_on_error=`  
-End of stream instead of `EIO` after hang-up; default `true`  
-
-`close_slave`, `close`, `closed?`  
-Release descriptors  
+Method                                                                                         | Description
+-----------------------------------------------------------------------------------------------|-------------------------------------------------------------
+`master_fd`, `slave_fd`, `slave_name`                                                          | Raw descriptors and slave device path
+`io`                                                                                           | Fiber-aware `PTY::IO` over the master, created once
+`master_io`, `slave_io`                                                                        | `IO::FileDescriptor` wrappers, closed with the PTY
+`read_master(buffer)`, `write_master(data)`                                                    | Blocking master I/O
+`read_slave(buffer)`, `write_slave(data)`                                                      | Blocking slave I/O
+`wait_readable(timeout = nil)`, `wait_writable(timeout = nil)`, `wait_priority(timeout = nil)` | Master readiness
+`termios`, `termios=`, `modify_termios { }`                                                    | Terminal attributes
+`winsize`, `winsize=`                                                                          | Window size
+`packet_mode=`, `packet_mode?`, `read_packet(buffer)`                                          | Packet mode (`packet_mode?` is Linux-only)
+`locked?`                                                                                      | Slave lock state (Linux-only)
+`eof_on_error`, `eof_on_error=`                                                                | End of stream instead of `EIO` after hang-up; default `true`
+`close_slave`, `close`, `closed?`                                                              | Release descriptors
 
 ### `TTY::PTY::Process < IO`
 
-`pid`, `pty`, `io`  
-Child pid, owned PTY, and its evented IO  
-
-`read`, `write`, `flush`, `closed?` and all `IO` methods  
-I/O with the child  
-
-`expect(pattern, timeout = nil)`  
-Read until a `Regex` or `String` matches; returns `Regex::MatchData`  
-
-`send_line(line = "")`  
-Write the line and `\r`  
-
-`interact(input = STDIN, output = STDOUT)`  
-Relay both ways until output ends; returns `ChildStatus`  
-
-`wait`  
-Block until exit; returns `ChildStatus`  
-
-`wait(timeout)`  
-`ChildStatus?`; `nil` on timeout  
-
-`wait_event`, `wait_event(timeout)`  
-Next `ChildEvent` from `waitid` (Linux-only)  
-
-`status`, `last_event`, `exited?`  
-Cached results  
-
-`signal(signal)`, `terminate`, `kill`  
-Send signals  
-
-`pidfd`, `pidfd?`, `poll_exit(timeout = nil)`  
-Pidfd access and exit polling (`pidfd` and `poll_exit` are Linux-only)  
-
-`close`  
-Close the pidfd and the PTY  
+Method                                        | Description
+----------------------------------------------|-----------------------------------------------------------------------
+`pid`, `pty`, `io`                            | Child pid, owned PTY, and its evented IO
+`read`, `write`, `flush`, `closed?`           | I/O with the child (plus all `IO` methods)
+`expect(pattern, timeout = nil)`              | Read until a `Regex` or `String` matches; returns `Regex::MatchData`
+`send_line(line = "")`                        | Write the line and `\r`
+`interact(input = STDIN, output = STDOUT)`    | Relay both ways until output ends; returns `ChildStatus`
+`wait`                                        | Block until exit; returns `ChildStatus`
+`wait(timeout)`                               | `ChildStatus?`; `nil` on timeout
+`wait_event`, `wait_event(timeout)`           | Next `ChildEvent` from `waitid` (Linux-only)
+`status`, `last_event`, `exited?`             | Cached results
+`signal(signal)`, `terminate`, `kill`         | Send signals
+`pidfd`, `pidfd?`, `poll_exit(timeout = nil)` | Pidfd access and exit polling (`pidfd` and `poll_exit` are Linux-only)
+`close`                                       | Close the pidfd and the PTY
 
 ### `TTY::PTY::IO < IO`
 
-`new(pty, eof_on_error = nil)`  
-Wrap a PTY's master; raises `PTY::Error` if one already exists  
-
-`expect(pattern, timeout = nil)`, `send_line(line = "")`  
-Scripting helpers  
-
-`sync?`, `sync=`  
-Unbuffered writes; default `true`  
-
-`read_timeout`, `read_timeout=`, `write_timeout`, `write_timeout=`  
-Event-loop timeouts  
-
-`eof_on_error`, `eof_on_error=`  
-End of stream instead of `EIO`  
-
-`pty`, `fd`, `io`  
-Owning PTY, master fd, underlying `IO::FileDescriptor`  
+Method                                                             | Description
+-------------------------------------------------------------------|---------------------------------------------------------------
+`new(pty, eof_on_error = nil)`                                     | Wrap a PTY's master; raises `PTY::Error` if one already exists
+`expect(pattern, timeout = nil)`, `send_line(line = "")`           | Scripting helpers
+`sync?`, `sync=`                                                   | Unbuffered writes; default `true`
+`read_timeout`, `read_timeout=`, `write_timeout`, `write_timeout=` | Event-loop timeouts
+`eof_on_error`, `eof_on_error=`                                    | End of stream instead of `EIO`
+`pty`, `fd`, `io`                                                  | Owning PTY, master fd, underlying `IO::FileDescriptor`
 
 ### `TTY::SpawnOptions`
 
-`new(env = nil, clear_env = false, shell = false, winsize = nil, working_dir = nil, close_fds = true)`  
-Build options; `env` accepts any `Process::Env`  
-
-`env`, `env=`  
-Entries applied to the environment, `Hash(String, String?)`  
-
-`clear_env`, `shell`, `winsize`, `working_dir`, `close_fds`  
-Properties matching the options table  
-
-`environment`  
-Resolved child environment  
-
-`argv(command, args)`  
-Resolved argument vector  
+Method                                                                                                 | Description
+-------------------------------------------------------------------------------------------------------|------------------------------------------------------------
+`new(env = nil, clear_env = false, shell = false, winsize = nil, working_dir = nil, close_fds = true)` | Build options; `env` accepts any `Process::Env`
+`env`, `env=`                                                                                          | Entries applied to the environment, `Hash(String, String?)`
+`clear_env`, `shell`, `winsize`, `working_dir`, `close_fds`                                            | Properties matching the options table
+`environment`                                                                                          | Resolved child environment
+`argv(command, args)`                                                                                  | Resolved argument vector
 
 ### Statuses and events
 
-`exit_code`, `normal_exit?`, `signal_exit?`, `exit_signal`  
-`Process::Status` names; on `ChildStatus` and `ChildEvent`  
-
-`exited?`, `exit_status`, `signaled?`, `term_signal`, `stopped?`, `core_dumped?`, `success?`  
-Traditional status checks; on `ChildStatus` and `ChildEvent`  
-
-`kind`, `pid`, `uid`, `status`  
-Event fields; on `ChildEvent`  
-
-`stop_signal`, `continued?`, `trapped?`, `terminal?`, `wait_status`  
-Event checks and the traditional wait status word; on `ChildEvent`  
-
-`ChildEvent.from_wait_status(pid, status)`  
-Build an event from a traditional wait status word  
+Method                                                                                       | Description
+---------------------------------------------------------------------------------------------|-------------------------------------------------------------------
+`exit_code`, `normal_exit?`, `signal_exit?`, `exit_signal`                                   | `Process::Status` names; on `ChildStatus` and `ChildEvent`
+`exited?`, `exit_status`, `signaled?`, `term_signal`, `stopped?`, `core_dumped?`, `success?` | Traditional status checks; on `ChildStatus` and `ChildEvent`
+`kind`, `pid`, `uid`, `status`                                                               | Event fields; on `ChildEvent`
+`stop_signal`, `continued?`, `trapped?`, `terminal?`, `wait_status`                          | Event checks and the traditional wait status word; on `ChildEvent`
+`ChildEvent.from_wait_status(pid, status)`                                                   | Build an event from a traditional wait status word
 
 `TTY::ChildEventKind` is `None`, `Exited`, `Killed`, `Dumped`, `Trapped`, `Stopped`, or `Continued`.
 
 ### Terminal modes
 
-`TTY.termios(fd)`, `TTY.winsize(fd)`  
-Read attributes or size  
-
-`TTY.raw(fd, action = SetAction::Now) { }`, `TTY.cbreak(fd, action = SetAction::Now) { }`  
-Scoped modes  
-
-`TTY.modify_termios(fd, action = SetAction::Now) { |termios| }`  
-Apply the termios the block returns  
-
-`TTY.with_terminal(fd, **options) { }`  
-Macro: scoped mode, switches, and nonblocking flag  
-
-`TTY.configure(fd) { }`  
-Macro: declarative termios changes  
-
-`TTY.flush(fd, queue = FlushQueue::Both)`  
-Discard queued input and/or output  
-
-`TTY.on_resize(fd) { |winsize| }`  
-Run a block on `SIGWINCH`  
+Method                                                                                    | Description
+------------------------------------------------------------------------------------------|---------------------------------------------------
+`TTY.termios(fd)`, `TTY.winsize(fd)`                                                      | Read attributes or size
+`TTY.raw(fd, action = SetAction::Now) { }`, `TTY.cbreak(fd, action = SetAction::Now) { }` | Scoped modes
+`TTY.modify_termios(fd, action = SetAction::Now) { |termios| }`                           | Apply the termios the block returns
+`TTY.with_terminal(fd, **options) { }`                                                    | Macro: scoped mode, switches, and nonblocking flag
+`TTY.configure(fd) { }`                                                                   | Macro: declarative termios changes
+`TTY.flush(fd, queue = FlushQueue::Both)`                                                 | Discard queued input and/or output
+`TTY.on_resize(fd) { |winsize| }`                                                         | Run a block on `SIGWINCH`
 
 ### `TTY::Termios`
 
-`Termios.get(fd)`, `#set(fd, action = SetAction::Now)`  
-Read and write  
-
-`echo?`, `echo=`, `canonical?`, `canonical=`, `signals?`, `signals=`  
-Named switches, listed in `Termios::SWITCHES`  
-
-`raw`, `cbreak`  
-Modified copies  
-
-`make_raw`, `make_cbreak`  
-Modify in place  
-
-`input`, `output`, `control`, `local` and their setters  
-`InputFlag`, `OutputFlag`, `ControlFlag`, `LocalFlag`  
-
-`[](cc)`, `[]=(cc, value)`  
-Control characters by `ControlChar`  
-
-`baud`, `baud=`, `custom_baud?`  
-Line speed by `Baud`  
-
-`read_timeout`, `read_timeout=`  
-VMIN/VTIME as a `Time::Span?`  
-
-`line`, `line=`  
-Line discipline (always `0` on macOS)  
-
-`to_s(io)`  
-`stty`-style summary  
+Method                                                               | Description
+---------------------------------------------------------------------|------------------------------------------------------
+`Termios.get(fd)`, `#set(fd, action = SetAction::Now)`               | Read and write
+`echo?`, `echo=`, `canonical?`, `canonical=`, `signals?`, `signals=` | Named switches, listed in `Termios::SWITCHES`
+`raw`, `cbreak`                                                      | Modified copies
+`make_raw`, `make_cbreak`                                            | Modify in place
+`input`, `output`, `control`, `local`                                | `InputFlag`, `OutputFlag`, `ControlFlag`, `LocalFlag`
+`[](cc)`, `[]=(cc, value)`                                           | Control characters by `ControlChar`
+`baud`, `baud=`, `custom_baud?`                                      | Line speed by `Baud`
+`read_timeout`, `read_timeout=`                                      | VMIN/VTIME as a `Time::Span?`
+`line`, `line=`                                                      | Line discipline (always `0` on macOS)
+`to_s(io)`                                                           | `stty`-style summary
 
 `TTY::Termios2` (Linux-only) mirrors `get`, `set`, the flag accessors, `line`, and control characters, and adds `from(termios)`, `custom_baud=`, `custom_baud?`, `input_speed`, and `output_speed`.
 
@@ -671,149 +551,68 @@ Line discipline (always `0` on macOS)
 
 ### `TTY::Winsize`
 
-`new(rows = 0, cols = 0, xpixel = 0, ypixel = 0)`  
-`UInt16` fields, all mutable  
-
-`Winsize.get(fd)`, `#set(fd)`  
-Read and write  
-
-`Winsize.current(fd = 0)`  
-Size, or `nil` for a non-terminal  
-
-`Winsize.propagate(from_fd, to_fd)`  
-Copy now and on every resize  
+Method                                            | Description
+--------------------------------------------------|----------------------------------
+`new(rows = 0, cols = 0, xpixel = 0, ypixel = 0)` | `UInt16` fields, all mutable
+`Winsize.get(fd)`, `#set(fd)`                     | Read and write
+`Winsize.current(fd = 0)`                         | Size, or `nil` for a non-terminal
+`Winsize.propagate(from_fd, to_fd)`               | Copy now and on every resize
 
 ### Readiness and polling
 
-`TTY.wait_readable(fd, timeout = nil)`, `wait_writable`, `wait_priority`  
-Single-descriptor waits  
+Method                                                                   | Description
+-------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------
+`TTY.wait_readable(fd, timeout = nil)`, `wait_writable`, `wait_priority` | Single-descriptor waits
+`TTY.wait_io(fd, events, timeout = nil)`                                 | Wait for an explicit `IOEvent` mask
+`TTY.poll(fds, timeout = nil)`                                           | Poll an `Array` or `Slice` of `PollFd`
+`PollFd.watch(fd, events)`                                               | Build a watch; inspect it with `readable?`, `priority?`, `writable?`, `error?`, `hangup?`, `invalid?`
 
-`TTY.wait_io(fd, events, timeout = nil)`  
-Wait for an explicit `IOEvent` mask  
-
-`TTY.poll(fds, timeout = nil)`  
-Poll an `Array` or `Slice` of `PollFd`  
-
-`PollFd.watch(fd, events)`  
-Build a watch; inspect it with `readable?`, `priority?`, `writable?`, `error?`, `hangup?`, `invalid?`  
-
-`Poller.new(backend = PollerBackendKind::Auto)`, `Poller.poll`  
-Create a poller  
-
-`Poller#watch(fd, events)`, `#unwatch(fd)`  
-Manage the watch set  
-
-`Poller#wait(timeout = nil)`  
-`Array(PollerEvent)`, each with `fd`, `events`, and the same predicates as `PollFd`  
-
-`Poller#backend`, `#close`, `#closed?`  
-Introspection and teardown  
-
-`TTY::IOEvent` flags are `Readable`, `Priority`, `Writable`, `Error`, `HangUp`, and `Invalid`; `TTY::PollerBackendKind` is `Auto`, `Poll`, `Epoll`, or `Kqueue`.
+`TTY::IOEvent` flags are `Readable`, `Priority`, `Writable`, `Error`, `HangUp`, and `Invalid`.
 
 ### `TTY::FD`
 
-`status_flags(fd)`, `descriptor_flags(fd)`  
-Raw `F_GETFL` and `F_GETFD`  
-
-`nonblocking?(fd)`, `set_nonblocking(fd, enabled = true)`  
-`O_NONBLOCK`; also available as `TTY.nonblocking?` and `TTY.set_nonblocking`  
-
-`cloexec?(fd)`, `set_cloexec(fd, enabled = true)`  
-`FD_CLOEXEC`; also available as `TTY.cloexec?` and `TTY.set_cloexec`  
-
-`pipe(cloexec = true)`  
-`{read_fd, write_fd}`  
-
-`duplicate_cloexec(fd, minimum_fd = 0)`  
-Duplicate with close-on-exec  
-
-`readv(fd, buffers)`, `writev(fd, buffers)`  
-Vectored I/O  
-
-`dup3(old_fd, new_fd, cloexec = true)`  
-Duplicate onto a number (Linux-only)  
-
-`close_range(first, last = Int32::MAX)`  
-Close a range, with a `/proc/self/fd` fallback (Linux-only)  
-
-`splice`, `tee`, `copy_file_range`  
-Zero-copy transfers (Linux-only)  
-
-`stat(fd)`, `mode(fd)`, `character_device?(fd)`  
-File metadata (Linux-only)  
+Method                                                    | Description
+----------------------------------------------------------|-----------------------------------------------------------------------------
+`status_flags(fd)`, `descriptor_flags(fd)`                | Raw `F_GETFL` and `F_GETFD`
+`nonblocking?(fd)`, `set_nonblocking(fd, enabled = true)` | `O_NONBLOCK`; also available as `TTY.nonblocking?` and `TTY.set_nonblocking`
+`cloexec?(fd)`, `set_cloexec(fd, enabled = true)`         | `FD_CLOEXEC`; also available as `TTY.cloexec?` and `TTY.set_cloexec`
+`pipe(cloexec = true)`                                    | `{read_fd, write_fd}`
+`duplicate_cloexec(fd, minimum_fd = 0)`                   | Duplicate with close-on-exec
+`dup3(old_fd, new_fd, cloexec = true)`                    | Duplicate onto a number (Linux-only)
+`close_range(first, last = Int32::MAX)`                   | Close a range, with a `/proc/self/fd` fallback (Linux-only)
 
 ### Sessions and serial lines
 
-`Session.start`  
-`setsid`; returns the new session id  
-
-`Session.make_controlling(fd)`, `Session.detach(fd)`  
-Acquire or release the controlling terminal  
-
-`Session.id(fd)`  
-Session of a terminal  
-
-`Session.foreground_pgrp(fd)`, `Session.set_foreground_pgrp(fd, pgrp)`  
-Foreground process group  
-
-`Session.process_group(pid = 0)`, `Session.set_process_group(pid, pgrp)`  
-Process groups (Linux-only)  
-
-`Session.signal_process_group(pgrp, signal)`  
-Signal a process group  
-
-`Session.line_discipline(fd)`, `Session.set_line_discipline(fd, discipline)`  
-Line discipline  
-
-`Session.exclusive(fd, enable = true)`, `Session.exclusive?(fd)`  
-Exclusive mode (`exclusive?` is Linux-only)  
-
-`TTY.pending_input(fd)`, `TTY.pending_output(fd)`  
-Queued byte counts  
-
-`TTY.drain(fd)`, `TTY.send_break(fd)`, `TTY.clear_break(fd)`  
-Output drain and break control  
-
-`TTY.inject(fd, byte)`  
-Push a byte into the input queue  
-
-`TTY.modem_status(fd)`, `TTY.set_modem_status(fd, lines)`  
-Modem lines as `ModemLine` flags  
-
-`TTY.set_modem_lines`, `TTY.clear_modem_lines`, `TTY.wait_modem`  
-Modem line changes (Linux-only)  
-
-`TTY.flow_control(fd, action)`  
-Software flow control by `FlowAction` (Linux-only)  
-
-`TTY.serial_icount(fd)`, `TTY.output_empty?(fd)`  
-Serial counters and line status (Linux-only)  
+Method                                                                       | Description
+-----------------------------------------------------------------------------|---------------------------------------------------
+`Session.start`                                                              | `setsid`; returns the new session id
+`Session.make_controlling(fd)`, `Session.detach(fd)`                         | Acquire or release the controlling terminal
+`Session.id(fd)`                                                             | Session of a terminal
+`Session.foreground_pgrp(fd)`, `Session.set_foreground_pgrp(fd, pgrp)`       | Foreground process group
+`Session.process_group(pid = 0)`, `Session.set_process_group(pid, pgrp)`     | Process groups (Linux-only)
+`Session.signal_process_group(pgrp, signal)`                                 | Signal a process group
+`Session.line_discipline(fd)`, `Session.set_line_discipline(fd, discipline)` | Line discipline
+`Session.exclusive(fd, enable = true)`, `Session.exclusive?(fd)`             | Exclusive mode (`exclusive?` is Linux-only)
+`TTY.pending_input(fd)`, `TTY.pending_output(fd)`                            | Queued byte counts
+`TTY.drain(fd)`, `TTY.send_break(fd)`, `TTY.clear_break(fd)`                 | Output drain and break control
+`TTY.inject(fd, byte)`                                                       | Push a byte into the input queue
+`TTY.modem_status(fd)`, `TTY.set_modem_status(fd, lines)`                    | Modem lines as `ModemLine` flags
+`TTY.set_modem_lines`, `TTY.clear_modem_lines`, `TTY.wait_modem`             | Modem line changes (Linux-only)
+`TTY.flow_control(fd, action)`                                               | Software flow control by `FlowAction` (Linux-only)
+`TTY.serial_icount(fd)`, `TTY.output_empty?(fd)`                             | Serial counters and line status (Linux-only)
 
 ### `TTY::Syscall`
 
 The raw layer the rest of the shard is built on. It takes plain `Int32` descriptors, millisecond timeouts, and signal numbers, and raises `Syscall::Error` for negative returns.
 
-Core  
-`raw(nr, a1..a6)`, `check(ret, ...)`  
-
-I/O  
-`read`, `write`, `readv`, `writev`, `close`, `fcntl`, `ioctl`, `ioctl_result`, `openat`, `fstat`  
-
-Descriptors  
-`pipe2`, `dup2`, `dup3`, `close_range`, `close_fds_from`, `close_fds_via_procfs`, `socketpair`  
-
-Zero-copy  
-`splice`, `tee`, `copy_file_range`  
-
-Processes  
-`fork`, `execve`, `setsid`, `setpgid`, `getpgid`, `getpid`, `kill`, `killpg`, `wait4`, `waitid`, `exit_group`, `reset_child_signal_state`  
-
-Pidfds  
-`pidfd_open`, `pidfd_send_signal`  
-
-Polling  
-`poll`, `sleep_ms`, `epoll_create1`, `epoll_ctl`, `epoll_wait`, `kqueue`, `kevent`  
+Area        | Calls
+------------|------------------------------------------------------------------------------------------------------------------------------------------
+Core        | `raw(nr, a1..a6)`, `check(ret, ...)`
+I/O         | `read`, `write`, `close`, `fcntl`, `ioctl`, `ioctl_result`, `openat`
+Descriptors | `pipe2`, `dup2`, `dup3`, `close_range`, `close_fds_from`, `close_fds_via_procfs`
+Processes   | `fork`, `execve`, `setsid`, `setpgid`, `getpgid`, `getpid`, `kill`, `killpg`, `wait4`, `waitid`, `exit_group`, `reset_child_signal_state`
+Pidfds      | `pidfd_open`, `pidfd_send_signal`
+Polling     | `poll`, `sleep_ms`
 
 Constants such as `WNOHANG`, `WNOWAIT`, `EINTR`, `EIO`, `EAGAIN`, `SIGTERM`, and `O_CLOEXEC` use the host platform's values.
 
@@ -827,7 +626,7 @@ crystal run --release bench/pty_throughput.cr
 
 - `spec/` holds the test suite, which needs Crystal 1.19 or newer. The library itself supports 1.10.
 - `examples/` holds one small runnable program per feature area.
-- `bench/` holds benchmarks for raw syscalls, PTY throughput, poller latency, and the macro layer.
+- `bench/` holds benchmarks for raw syscalls, PTY throughput, and the macro layer.
 
 The exclusive-mode spec expects `EBUSY` when a second process opens a locked terminal. The kernel does not enforce exclusive mode for root, so that spec fails when the suite runs as root.
 

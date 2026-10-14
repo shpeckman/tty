@@ -380,11 +380,11 @@ module TTY
         env_strings  = environment.map { |key, value| "#{key}=#{value}" }
         path_value   = environment["PATH"]? || ENV["PATH"]? || SpawnOptions::DEFAULT_PATH
         executable   = argv_strings[0]
-        candidates   = if executable.includes?('/')
-                         [executable]
-                       else
-                         path_value.split(':').map { |dir| dir.empty? ? executable : "#{dir}/#{executable}" } + [executable]
-                       end
+        candidates = if executable.includes?('/')
+                       [executable]
+                     else
+                       path_value.split(':').map { |dir| dir.empty? ? executable : "#{dir}/#{executable}" } + [executable]
+                     end
         error_read, error_write = FD.pipe(cloexec: true)
       rescue ex
         pty.close
@@ -623,21 +623,6 @@ module TTY
         return 0 if @eof_on_error && ex.errno == Syscall::EIO
         raise ex
       end
-    end
-
-    def read_master_v(buffers : Array(Bytes)) : Int32
-      raise Error.new("master fd is closed") if closed?
-      begin
-        FD.readv(@master_fd, buffers)
-      rescue ex : Syscall::Error
-        return 0 if @eof_on_error && ex.errno == Syscall::EIO
-        raise ex
-      end
-    end
-
-    def write_master_v(buffers : Array(Bytes)) : Int32
-      raise Error.new("master fd is closed") if closed?
-      FD.writev(@master_fd, buffers)
     end
 
     def read_slave(buffer : Bytes) : Int32

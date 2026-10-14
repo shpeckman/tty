@@ -16,8 +16,8 @@ class TTY::PTY
       @fd           = @pty.master_fd
       @eof_on_error = eof_on_error.nil? ? @pty.eof_on_error : eof_on_error
       @io           = ::IO::FileDescriptor.new(@fd, close_on_finalize: false)
-      @io.sync      = true
-      @unread       = Bytes.empty
+      @io.sync = true
+      @unread = Bytes.empty
       @pty.evented_io = self
     end
 
@@ -62,9 +62,9 @@ class TTY::PTY
       deadline = limit < 0 ? nil : now + limit.milliseconds
       received = ::IO::Memory.new
       received.write(@unread)
-      @unread  = Bytes.empty
-      chunk    = Bytes.new(CHUNK_SIZE)
-      saved    = @io.read_timeout
+      @unread = Bytes.empty
+      chunk   = Bytes.new(CHUNK_SIZE)
+      saved   = @io.read_timeout
       begin
         loop do
           if match = regex.match(String.new(received.to_slice))

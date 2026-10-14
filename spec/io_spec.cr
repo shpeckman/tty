@@ -87,7 +87,7 @@ describe "PTY::IO conveniences" do
 
   it "expects patterns and keeps unconsumed output for later reads" do
     process = TTY::PTY.spawn("sh", ["-c", "printf 'login: '; read name; echo \"hello $name\"; echo after"])
-    match = process.expect(/login: /, timeout: 2.seconds)
+    match   = process.expect(/login: /, timeout: 2.seconds)
     match[0].should eq("login: ")
     process.send_line("crystal")
     process.expect("hello crystal", timeout: 2.seconds).pre_match.should contain("crystal")
@@ -99,7 +99,7 @@ describe "PTY::IO conveniences" do
 
   it "returns capture groups" do
     process = TTY::PTY.spawn("sh", ["-c", "echo 'version 1.2.3'"])
-    match = process.expect(/version (\d+)\.(\d+)/, timeout: 2000)
+    match   = process.expect(/version (\d+)\.(\d+)/, timeout: 2000)
     match[1].should eq("1")
     match[2].should eq("2")
     process.gets.should eq(".3")
